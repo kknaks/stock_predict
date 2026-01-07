@@ -418,10 +418,42 @@ class RKDFndCmpIssDet(Base):
         )
 
 
+class RKDFndCmpInd(Base):
+    """
+    RKD Fund Company Industry 테이블
+
+    종목별 산업/섹터 분류 정보
+    - TxoTypeCode = 7: MGSECTOR (섹터)
+    - TxoTypeCode = 10: NAICS (산업)
+    """
+    __tablename__ = "RKDFndCmpInd"
+    __table_args__ = (
+        PrimaryKeyConstraint("Code", "TxoTypeCode", "TxoOrder", name="pkey_RKDFndCmpInd"),
+        {"schema": "dbo"},
+    )
+
+    # Primary Key
+    Code: int = Column(Integer, nullable=False, comment="종목 코드 (RKDFndInfo 참조)")
+    TxoTypeCode: int = Column(Integer, nullable=False, comment="분류 체계 코드 (7=섹터, 10=NAICS 등)")
+    TxoOrder: int = Column(Integer, nullable=False, comment="순서")
+
+    # 분류 정보
+    TxoCode: Optional[int] = Column(Integer, nullable=True, comment="분류 코드")
+    Desc_: Optional[str] = Column("Desc_", String(121), nullable=True, comment="분류명")
+    LicFlag: Optional[int] = Column(Integer, nullable=True, comment="라이선스 플래그")
+
+    def __repr__(self) -> str:
+        return (
+            f"<RKDFndCmpInd(Code={self.Code}, "
+            f"TxoTypeCode={self.TxoTypeCode}, "
+            f"Desc_={self.Desc_})>"
+        )
+
+
 class DS2Company(Base):
     """
     DS2 Company 테이블
-    
+
     회사 정보 마스터 테이블
     """
     __tablename__ = "DS2Company"
