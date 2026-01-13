@@ -20,9 +20,9 @@ from src.data.models import (
     DS2CtryQtInfo,
     DS2Exchange,
     DS2PrimQtPrc,
+    Ds2MnemChg,
     VwDs2Pricing,
     VwDs2MktCap,
-    RKDFndInfo,
     RKDFndCmpInd,
     DS2EquityIndex,
     DS2IndexData,
@@ -150,8 +150,42 @@ class DataLoader:
 
             region = self.data_config.get('filters', {}).get('region', 'US')
 
-            # 종목 조회 (거래소, Ticker/ISIN 정보 포함)
-            stocks = session.query(
+            # 서브쿼리: 각 InfoCode의 최신 Ticker (MAX(EndDate))
+            max_enddate_subq = (
+                session.query(
+                    Ds2MnemChg.InfoCode,
+                    func.max(Ds2MnemChg.EndDate).label('max_enddate')
+                )
+                .group_by(Ds2MnemChg.InfoCode)
+                .subquery()
+            )
+
+            # region에 따라 Ticker 컬럼 결정
+            # US: Ds2MnemChg.Ticker 사용
+            # KR, JP: DsLocalCode에서 첫 문자 제외 (2번째부터 끝까지)
+            # HK: DsLocalCode에서 앞 2문자 제외 (3번째부터 끝까지)
+            if region == 'US':
+                ticker_column = Ds2MnemChg.Ticker.label('Ticker')
+            elif region in ('KR', 'JP'):
+                # SUBSTRING(DsLocalCode, 2, LEN(DsLocalCode))
+                ticker_column = func.substring(
+                    DS2CtryQtInfo.DsLocalCode, 
+                    2, 
+                    func.len(DS2CtryQtInfo.DsLocalCode)
+                ).label('Ticker')
+            elif region == 'HK':
+                # SUBSTRING(DsLocalCode, 3, LEN(DsLocalCode))
+                ticker_column = func.substring(
+                    DS2CtryQtInfo.DsLocalCode, 
+                    3, 
+                    func.len(DS2CtryQtInfo.DsLocalCode)
+                ).label('Ticker')
+            else:
+                # 기타 region은 Ds2MnemChg.Ticker 사용
+                ticker_column = Ds2MnemChg.Ticker.label('Ticker')
+
+            # 종목 조회 (거래소, Ticker 정보 포함)
+            base_query = session.query(
                 DS2CtryQtInfo.InfoCode,
                 DS2CtryQtInfo.DsCode,
                 DS2CtryQtInfo.DsQtName,
@@ -161,20 +195,29 @@ class DataLoader:
                 DS2PrimQtPrc.ExchIntCode,
                 DS2Exchange.ExchName,
                 DS2Exchange.ExchMnem,
-                RKDFndInfo.Ticker,
-                RKDFndInfo.ISIN,
-                RKDFndInfo.Cusip,
-                RKDFndInfo.Sedol,
+                ticker_column,
             ).join(
                 DS2PrimQtPrc,
                 DS2CtryQtInfo.InfoCode == DS2PrimQtPrc.InfoCode
             ).join(
                 DS2Exchange,
                 DS2PrimQtPrc.ExchIntCode == DS2Exchange.ExchIntCode
-            ).outerjoin(
-                RKDFndInfo,
-                DS2CtryQtInfo.InfoCode == RKDFndInfo.Code
-            ).filter(
+            )
+
+            # US와 기타(Ds2MnemChg.Ticker 사용하는 경우)에만 Ds2MnemChg 조인
+            if region in ('US',) or region not in ('KR', 'JP', 'HK'):
+                base_query = base_query.outerjoin(
+                    max_enddate_subq,
+                    DS2CtryQtInfo.InfoCode == max_enddate_subq.c.InfoCode
+                ).outerjoin(
+                    Ds2MnemChg,
+                    and_(
+                        DS2CtryQtInfo.InfoCode == Ds2MnemChg.InfoCode,
+                        Ds2MnemChg.EndDate == max_enddate_subq.c.max_enddate
+                    )
+                )
+
+            stocks = base_query.filter(
                 and_(
                     DS2CtryQtInfo.Region == region,
                     DS2CtryQtInfo.IsPrimQt == 1,
@@ -192,15 +235,15 @@ class DataLoader:
                     'ExchMnem': s.ExchMnem,
                     'ExchIntCode': s.ExchIntCode,
                     'Ticker': s.Ticker,
-                    'ISIN': s.ISIN,
-                    'Cusip': s.Cusip,
-                    'Sedol': s.Sedol,
                     'StatusCode': s.StatusCode,
                     'DelistDate': s.DelistDate,
                     'Region': s.Region,
                 }
                 for s in stocks
             ])
+
+            # 중복 제거 (같은 InfoCode + ExchIntCode 조합에서 마지막 것만 유지)
+            df = df.drop_duplicates(subset=['InfoCode', 'ExchIntCode', 'DsQtName'], keep='last')
 
             # ETF/SPAC 필터링 (설정에서)
             exclude_keywords = self.data_config.get('filters', {}).get('exclude_keywords', [])
@@ -217,7 +260,8 @@ class DataLoader:
         self,
         info_code: int,
         start_date: datetime,
-        adj_type: int = 2
+        adj_type: int = 2,
+        exch_int_code: Optional[int] = None
     ) -> pd.DataFrame:
         """
         단일 종목의 OHLCV 데이터 로드
@@ -226,12 +270,25 @@ class DataLoader:
             info_code: InfoCode
             start_date: 시작일
             adj_type: 조정 타입 (0=미수정, 1=분할만, 2=전체)
+            exch_int_code: 거래소 코드 (지정 시 해당 거래소 데이터만 조회)
 
         Returns:
             OHLCV DataFrame
         """
         with SessionManager(self.db) as session:
             # VwDs2Pricing 뷰에서 조회 (조정 가격 포함)
+            filters = [
+                VwDs2Pricing.InfoCode == info_code,
+                VwDs2Pricing.MarketDate >= start_date,
+                VwDs2Pricing.AdjType == adj_type,
+                VwDs2Pricing.Open_.isnot(None),
+                VwDs2Pricing.Close_.isnot(None),
+            ]
+
+            # 거래소 필터 추가 (multi-listed 종목 중복 방지)
+            if exch_int_code is not None:
+                filters.append(VwDs2Pricing.ExchIntCode == exch_int_code)
+
             prices = session.query(
                 VwDs2Pricing.InfoCode,
                 VwDs2Pricing.MarketDate,
@@ -243,13 +300,7 @@ class DataLoader:
                 VwDs2Pricing.ExchIntCode,
                 VwDs2Pricing.AdjType,
             ).filter(
-                and_(
-                    VwDs2Pricing.InfoCode == info_code,
-                    VwDs2Pricing.MarketDate >= start_date,
-                    VwDs2Pricing.AdjType == adj_type,
-                    VwDs2Pricing.Open_.isnot(None),
-                    VwDs2Pricing.Close_.isnot(None),
-                )
+                and_(*filters)
             ).order_by(
                 VwDs2Pricing.MarketDate
             ).all()
@@ -276,48 +327,81 @@ class DataLoader:
 
     def load_ohlcv_batch(
         self,
-        info_codes: List[int],
+        stock_list: pd.DataFrame,
         start_date: datetime,
-        adj_type: int = 2
+        adj_type: int = 2,
+        batch_size: int = 100
     ) -> pd.DataFrame:
         """
-        여러 종목의 OHLCV 데이터를 병렬로 로드
+        여러 종목의 OHLCV 데이터를 배치로 로드 (개선된 버전)
 
         Args:
-            info_codes: InfoCode 리스트
+            stock_list: 종목 리스트 DataFrame (InfoCode, ExchIntCode 컬럼 필수)
             start_date: 시작일
             adj_type: 조정 타입
+            batch_size: 한 번에 조회할 종목 수 (기본 100개)
 
         Returns:
             병합된 OHLCV DataFrame
         """
-        max_workers = self.data_config.get('parallel', {}).get('max_workers', 10)
+        total_stocks = len(stock_list)
+        all_results = []
 
-        results = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # 각 종목에 대해 비동기 실행
-            future_to_code = {
-                executor.submit(self.load_ohlcv_for_stock, code, start_date, adj_type): code
-                for code in info_codes
-            }
+        # InfoCode 리스트 추출
+        info_codes = stock_list['InfoCode'].tolist()
 
-            # 결과 수집 (진행률 표시)
-            for future in tqdm(
-                as_completed(future_to_code),
-                total=len(info_codes),
-                desc="Loading OHLCV"
-            ):
+        # 배치 단위로 조회
+        with SessionManager(self.db) as session:
+            for i in tqdm(range(0, total_stocks, batch_size), desc="Loading OHLCV batches"):
+                batch_codes = info_codes[i:i + batch_size]
+
                 try:
-                    df = future.result()
-                    if not df.empty:
-                        results.append(df)
+                    # 한 쿼리로 여러 종목 조회 (IN 절 사용)
+                    prices = session.query(
+                        VwDs2Pricing.InfoCode,
+                        VwDs2Pricing.MarketDate,
+                        VwDs2Pricing.Open_,
+                        VwDs2Pricing.High,
+                        VwDs2Pricing.Low,
+                        VwDs2Pricing.Close_,
+                        VwDs2Pricing.Volume,
+                        VwDs2Pricing.ExchIntCode,
+                    ).filter(
+                        and_(
+                            VwDs2Pricing.InfoCode.in_(batch_codes),
+                            VwDs2Pricing.MarketDate >= start_date,
+                            VwDs2Pricing.AdjType == adj_type,
+                            VwDs2Pricing.Open_.isnot(None),
+                            VwDs2Pricing.Close_.isnot(None),
+                        )
+                    ).order_by(
+                        VwDs2Pricing.InfoCode,
+                        VwDs2Pricing.MarketDate
+                    ).all()
+
+                    if prices:
+                        # DataFrame 변환
+                        df_batch = pd.DataFrame([
+                            {
+                                'InfoCode': p.InfoCode,
+                                'date': p.MarketDate,
+                                'open': p.Open_,
+                                'high': p.High,
+                                'low': p.Low,
+                                'close': p.Close_,
+                                'volume': p.Volume,
+                                'ExchIntCode': p.ExchIntCode,
+                            }
+                            for p in prices
+                        ])
+                        all_results.append(df_batch)
+
                 except Exception as e:
-                    code = future_to_code[future]
-                    print(f"Error loading InfoCode {code}: {e}")
+                    print(f"Error loading batch {i//batch_size + 1}: {e}")
 
         # 모든 결과 병합
-        if results:
-            return pd.concat(results, ignore_index=True)
+        if all_results:
+            return pd.concat(all_results, ignore_index=True)
         else:
             return pd.DataFrame()
 
@@ -374,14 +458,15 @@ class DataLoader:
         인덱스 니모닉으로 DSIndexCode 조회
 
         Args:
-            index_mnem: 인덱스 니모닉 (예: 'S&PCOMP' for SPY, 'NASD100' for QQQ)
+            index_mnem: 인덱스 니모닉 (예: 'S&PCOMP' for SPY, 'NASA100' for QQQ)
 
         Returns:
             DSIndexCode 또는 None
         """
         with SessionManager(self.db) as session:
+            # 정확한 매칭 사용 (LIKE 대신 ==로 인덱스 활용, 성능 향상)
             index = session.query(DS2EquityIndex.DSIndexCode).filter(
-                DS2EquityIndex.DSIndexMnem.like(f'%{index_mnem}%')
+                DS2EquityIndex.DSIndexMnem == index_mnem
             ).first()
 
             return index.DSIndexCode if index else None
@@ -453,18 +538,36 @@ class DataLoader:
         Args:
             start_date: 시작일
             indices: 인덱스 니모닉 딕셔너리 {name: mnemonic}
-                     None이면 기본값 사용 (SPY, QQQ, VIX)
+                     None이면 region에 따라 기본값 사용
 
         Returns:
             병합된 지수 데이터 DataFrame
         """
         if indices is None:
-            # 기본 지수 설정
-            indices = {
-                'spy': 'S&PCOMP',   # S&P 500
-                'qqq': 'NASD100',   # NASDAQ 100
-                'vix': 'CBOE',      # VIX
-            }
+            # region에 따라 기본 지수 설정
+            region = self.data_config.get('filters', {}).get('region', 'US')
+            
+            if region == 'US':
+                indices = {
+                    'spy': 'S&PCOMP',   # S&P 500
+                    'qqq': 'NASA100',   # NASDAQ 100
+                }
+            elif region == 'KR':
+                indices = {
+                    'kospi200': 'KOR200I',   # KOSPI 200 (S&P 500 역할)
+                    'kosdaq': 'KOSCOMP',     # KOSDAQ COMPOSITE (NASDAQ 역할)
+                }
+            elif region == 'JP':
+                indices = {
+                    'nikkei225': 'JAPDOWA',  # Nikkei 225
+                }
+            elif region == 'HK':
+                indices = {
+                    'hsi': 'HNGKNGI',        # Hang Seng Index
+                }
+            else:
+                # 기타 region은 빈 딕셔너리 (지수 로드 안 함)
+                indices = {}
 
         print(f"\nLoading market indices...")
 
@@ -543,11 +646,11 @@ class DataLoader:
         all_ohlcv = []
 
         print(f"\nLoading OHLCV data in batches of {batch_size}...")
-        for i in range(0, len(info_codes), batch_size):
-            batch = info_codes[i:i + batch_size]
-            print(f"Batch {i//batch_size + 1}/{(len(info_codes)-1)//batch_size + 1}")
+        for i in range(0, len(stock_list), batch_size):
+            batch_stocks = stock_list.iloc[i:i + batch_size]
+            print(f"Batch {i//batch_size + 1}/{(len(stock_list)-1)//batch_size + 1}")
 
-            df_batch = self.load_ohlcv_batch(batch, start_date, adj_type)
+            df_batch = self.load_ohlcv_batch(batch_stocks, start_date, adj_type)
             if not df_batch.empty:
                 all_ohlcv.append(df_batch)
 

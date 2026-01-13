@@ -76,10 +76,15 @@ class DatabaseConnector:
             self.engine = create_engine(
                 connection_string,
                 poolclass=QueuePool,
-                pool_size=5,
-                max_overflow=10,
-                pool_pre_ping=True,  # 연결 유효성 체크
-                echo=False  # SQL 로깅 (디버깅 시 True로 변경)
+                pool_size=20,           # 5 → 20 증가
+                max_overflow=30,        # 10 → 30 증가
+                pool_timeout=120,       # 기본 30초 → 120초
+                pool_recycle=3600,      # 1시간마다 연결 재활용
+                pool_pre_ping=True,     # 연결 유효성 체크
+                echo=False,             # SQL 로깅 (디버깅 시 True로 변경)
+                connect_args={
+                    'timeout': 300,     # 쿼리 타임아웃 5분
+                }
             )
 
             # SessionLocal 생성

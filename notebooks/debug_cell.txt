@@ -1,0 +1,81 @@
+# Model 2-1 디버깅 셀 (노트북에 추가하세요)
+
+# 1. y_up_max_test의 실제 값 확인
+print("=" * 80)
+print("Model 2-1 디버깅: y_up_max_test 확인")
+print("=" * 80)
+
+print(f"\n1. y_up_max_test 기본 정보:")
+print(f"   길이: {len(y_up_max_test):,}")
+print(f"   평균: {y_up_max_test.mean():.2f}%")
+print(f"   중앙값: {y_up_max_test.median():.2f}%")
+print(f"   최소: {y_up_max_test.min():.2f}%")
+print(f"   최대: {y_up_max_test.max():.2f}%")
+
+print(f"\n   통계:")
+print(y_up_max_test.describe())
+
+# 2. y_up_test와 비교
+print(f"\n2. y_up_test (종가) vs y_up_max_test (고가) 비교:")
+print(f"   y_up_test 평균: {y_up_test.mean():.2f}%")
+print(f"   y_up_max_test 평균: {y_up_max_test.mean():.2f}%")
+print(f"   차이: {y_up_max_test.mean() - y_up_test.mean():.2f}%p")
+
+# 3. 인덱스 확인
+print(f"\n3. 인덱스 일치 여부:")
+print(f"   X_up_test 인덱스 샘플: {list(X_up_test.index[:5])}")
+print(f"   y_up_test 인덱스 샘플: {list(y_up_test.index[:5])}")
+print(f"   y_up_max_test 인덱스 샘플: {list(y_up_max_test.index[:5])}")
+
+# 인덱스 일치 확인
+index_match_return = (X_up_test.index == y_up_test.index).all()
+index_match_max = (X_up_test.index == y_up_max_test.index).all()
+
+print(f"\n   X_up_test vs y_up_test 인덱스 일치: {index_match_return}")
+print(f"   X_up_test vs y_up_max_test 인덱스 일치: {index_match_max}")
+
+# 4. 원본 데이터에서 직접 확인
+print(f"\n4. 원본 df_up에서 target_max_return 확인:")
+print(f"   df_up의 target_max_return 평균: {df_up['target_max_return'].mean():.2f}%")
+print(f"   df_up의 target_return 평균: {df_up['target_return'].mean():.2f}%")
+
+# 5. 올바른 분할 방법
+print(f"\n5. 올바른 분할 (수정안):")
+print("   현재 코드:")
+print("   _, _, _, _, _, y_up_max_test = train_test_split(")
+print("       X_up, y_up_max, y_direction[df_up.index], test_size=0.1, random_state=42, stratify=y_direction[df_up.index]")
+print("   )")
+
+print("\n   올바른 코드:")
+print("   # X_up과 y_up을 먼저 분할 (이미 완료됨)")
+print("   X_up_temp, X_up_test, y_up_temp, y_up_test = train_test_split(...)")
+print("   ")
+print("   # 동일한 인덱스를 사용하여 y_up_max 분할")
+print("   y_up_max_temp = df_up.loc[X_up_temp.index, 'target_max_return']")
+print("   y_up_max_test_correct = df_up.loc[X_up_test.index, 'target_max_return']")
+
+# 6. 올바른 분할로 재계산
+print(f"\n6. 올바른 분할 결과:")
+y_up_max_test_correct = df_up.loc[X_up_test.index, 'target_max_return']
+print(f"   올바른 y_up_max_test 평균: {y_up_max_test_correct.mean():.2f}%")
+print(f"   기존 y_up_max_test 평균: {y_up_max_test.mean():.2f}%")
+print(f"   차이: {y_up_max_test_correct.mean() - y_up_max_test.mean():.2f}%p")
+
+# 7. 재예측 및 재평가
+if y_up_max_test_correct.mean() > 5:  # 정상적인 값인 경우
+    print(f"\n7. 올바른 데이터로 재평가:")
+
+    # 올바른 y_up_max_test로 평가
+    mae_test_max_correct = mean_absolute_error(y_up_max_test_correct, y_up_max_test_pred)
+    rmse_test_max_correct = np.sqrt(mean_squared_error(y_up_max_test_correct, y_up_max_test_pred))
+    r2_test_max_correct = r2_score(y_up_max_test_correct, y_up_max_test_pred)
+
+    print(f"   수정된 Test MAE: {mae_test_max_correct:.4f}%")
+    print(f"   수정된 Test RMSE: {rmse_test_max_correct:.4f}%")
+    print(f"   수정된 Test R²: {r2_test_max_correct:.4f}")
+
+    print(f"\n   비교:")
+    print(f"   기존 R²: {r2_test_max:.4f} ❌")
+    print(f"   수정 R²: {r2_test_max_correct:.4f} ✅")
+
+print("\n" + "=" * 80)
