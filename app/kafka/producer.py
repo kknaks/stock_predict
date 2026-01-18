@@ -8,7 +8,7 @@ from kafka import KafkaProducer
 from kafka.errors import KafkaError
 
 from app.config.kafka_connections import get_kafka_config
-from .schemas import PredictionResultMessage
+from .schemas import PredictionResultMessage, PredictionResultBatchMessage
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ class PredictionProducer:
         predictions: List[PredictionResultMessage]
     ) -> dict:
         """
-        배치로 예측 결과 발행
+        배치로 예측 결과 발행 (개별 메시지로)
 
         Args:
             predictions: 예측 결과 리스트
@@ -128,6 +128,56 @@ class PredictionProducer:
         )
 
         return stats
+
+    def send_batch_message(
+        self,
+        batch_message: PredictionResultBatchMessage,
+        key: Optional[str] = None
+    ) -> bool:
+        """
+        배치 예측 결과 메시지 발행 (하나의 메시지로)
+
+        Args:
+            batch_message: 배치 예측 결과 메시지
+            key: 메시지 키 (파티셔닝용, None이면 timestamp 사용)
+
+        Returns:
+            성공 여부
+        """
+        if not self.producer:
+            raise RuntimeError("Producer not initialized")
+
+        try:
+            # 메시지 키 (배치 식별용)
+            if key is None:
+                key = f"batch_{batch_message.timestamp.isoformat()}"
+
+            # JSON으로 직렬화
+            message_value = batch_message.to_json()
+
+            # 발행 (send_prediction과 동일하게 문자열로 전달)
+            future = self.producer.send(
+                self.topic,
+                key=key.encode('utf-8'),
+                value=message_value
+            )
+
+            # 전송 완료 대기 (동기)
+            record_metadata = future.get(timeout=10)
+
+            logger.info(
+                f"✓ Sent batch prediction: {batch_message.total_count} predictions "
+                f"partition={record_metadata.partition} offset={record_metadata.offset}"
+            )
+
+            return True
+
+        except KafkaError as e:
+            logger.error(f"Failed to send batch prediction: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error sending batch prediction: {e}")
+            return False
 
     def flush(self):
         """버퍼에 남은 메시지 모두 전송"""

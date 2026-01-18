@@ -1,4 +1,4 @@
-name: stock-predict-ai
+name: stock-predict-engine
 
 services:
   # AI 서버 (Kafka Consumer)

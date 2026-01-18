@@ -5,8 +5,65 @@ Pydantic을 사용하여 메시지 검증 및 직렬화/역직렬화
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel, Field, field_validator
+
+
+class StockInfo(BaseModel):
+    """배치 메시지 내 개별 종목 정보"""
+    stock_code: str = Field(..., description="종목 코드")
+    stock_name: str = Field(..., description="종목명")
+    exchange: str = Field(..., description="거래소 (KOSPI/KOSDAQ)")
+    stock_open: float = Field(..., gt=0, description="당일 시가")
+    gap_rate: float = Field(..., description="갭 상승률 (%)")
+    expected_change_rate: float = Field(default=0.0, description="예상 변동률")
+    volume: int = Field(default=0, description="거래량")
+
+
+class GapCandidateBatchMessage(BaseModel):
+    """
+    갭 상승 후보 배치 메시지 (수신용)
+
+    토픽: extract_daily_candidate
+    발행자: 데이터 수집 시스템 (Airflow)
+    
+    모든 종목을 하나의 메시지로 묶어서 발행
+    """
+    timestamp: datetime = Field(..., description="메시지 발행 시각")
+    kospi_open: float = Field(..., description="KOSPI 시가")
+    kosdaq_open: float = Field(..., description="KOSDAQ 시가")
+    kospi200_open: float = Field(..., description="KOSPI200 시가")
+    total_count: int = Field(..., ge=0, description="종목 수")
+    stocks: List[StockInfo] = Field(..., description="갭 상승 종목 리스트")
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'GapCandidateBatchMessage':
+        """JSON 문자열에서 생성 (Kafka 수신용)"""
+        return cls.model_validate_json(json_str)
+
+    def to_individual_messages(self) -> List['GapCandidateMessage']:
+        """
+        배치 메시지를 개별 GapCandidateMessage 리스트로 변환
+        
+        Returns:
+            개별 종목 메시지 리스트
+        """
+        messages = []
+        for stock in self.stocks:
+            message = GapCandidateMessage(
+                timestamp=self.timestamp,
+                stock_code=stock.stock_code,
+                stock_name=stock.stock_name,
+                exchange=stock.exchange,
+                stock_open=stock.stock_open,
+                gap_rate=stock.gap_rate,
+                expected_change_rate=stock.expected_change_rate,
+                kospi_open=self.kospi_open,
+                kosdaq_open=self.kosdaq_open,
+                kospi200_open=self.kospi200_open,
+            )
+            messages.append(message)
+        return messages
 
 
 class GapCandidateMessage(BaseModel):
@@ -69,6 +126,7 @@ class PredictionResultMessage(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now, description="예측 시각")
     stock_code: str = Field(..., description="종목 코드")
     stock_name: str = Field(..., description="종목명")
+    market_cap: int = Field(..., description="시가총액")
     exchange: str = Field(..., description="거래소")
     date: str = Field(..., description="예측 대상 날짜 (YYYY-MM-DD)")
 
@@ -111,6 +169,29 @@ class PredictionResultMessage(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> 'PredictionResultMessage':
+        """JSON 문자열에서 생성"""
+        return cls.model_validate_json(json_str)
+
+
+class PredictionResultBatchMessage(BaseModel):
+    """
+    AI 예측 결과 배치 메시지 (발행용)
+
+    토픽: ai_prediction_result
+    발행자: AI 서버
+    
+    모든 예측 결과를 하나의 메시지로 묶어서 발행
+    """
+    timestamp: datetime = Field(default_factory=datetime.now, description="배치 발행 시각")
+    total_count: int = Field(..., ge=0, description="예측 결과 수")
+    predictions: List[PredictionResultMessage] = Field(..., description="예측 결과 리스트")
+
+    def to_json(self) -> str:
+        """JSON 문자열로 변환 (Kafka 발행용)"""
+        return self.model_dump_json()
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'PredictionResultBatchMessage':
         """JSON 문자열에서 생성"""
         return cls.model_validate_json(json_str)
 

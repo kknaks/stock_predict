@@ -11,11 +11,11 @@ from typing import Optional
 import pandas as pd
 import numpy as np
 from sqlalchemy import and_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.config.db_connections import get_sync_session_factory
 from app.config.settings import settings
-from app.database.database.stocks import StockPrices, MarketIndices
+from app.database.database.stocks import StockPrices, MarketIndices, GapPredictions, SignalType, ConfidenceLevel, StockMetadata
 from app.kafka.schemas import GapCandidateMessage, PredictionResultMessage
 from app.kafka.producer import PredictionProducer
 from app.prediction.predictor import load_predictor
@@ -73,13 +73,26 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
             start_date = today - timedelta(days=settings.feature_lookback_days)
             
             # 1-1. 종목별 과거 60일 StockPrices 조회 (기술지표 포함)
-            stock_prices = session.query(StockPrices).filter(
+            # joinedload로 StockMetadata를 함께 로드하여 한 번의 쿼리로 처리
+            stock_prices = session.query(StockPrices).options(
+                joinedload(StockPrices.stock)
+            ).filter(
                 and_(
                     StockPrices.symbol == message.stock_code,
                     StockPrices.date >= start_date,
                     StockPrices.date < today  # 오늘 제외 (어제까지)
                 )
             ).order_by(StockPrices.date.asc()).all()
+
+            # StockPrices의 첫 번째 레코드에서 stock 관계를 통해 StockMetadata 접근
+            if not stock_prices or not stock_prices[0].stock:
+                logger.warning(f"종목 메타 데이터 없음: {message.stock_code}")
+                return None
+            
+            market_cap = stock_prices[0].stock.market_cap
+            if market_cap is None:
+                logger.warning(f"시가총액 데이터 없음: {message.stock_code}")
+                return None
             
             if len(stock_prices) < 30:  # 최소 30일 데이터 필요
                 logger.warning(
@@ -178,9 +191,11 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 'close': None,
                 'volume': None,
                 'gap_pct': message.gap_rate,  # 메시지에서 받은 갭률
-                'prev_return': None,  # 계산 불가 (오늘 데이터)
-                'prev_range_pct': None,
-                'volume_ratio': None,
+
+                # ✅ Feature Importance 기반 채우기
+                'prev_return': ((df['close'].iloc[-1] - df['open'].iloc[-1]) / df['open'].iloc[-1] * 100) if pd.notna(df['close'].iloc[-1]) and pd.notna(df['open'].iloc[-1]) else None,  # 어제 시가→종가
+                'prev_range_pct': ((df['high'].iloc[-1] - df['low'].iloc[-1]) / df['close'].iloc[-1] * 100) if pd.notna(df['high'].iloc[-1]) and pd.notna(df['low'].iloc[-1]) else None,  # 어제 고저 범위
+                'volume_ratio': float(df['volume_ratio'].iloc[-1]) * 5.0 if not df['volume_ratio'].isna().iloc[-1] else None,  # 갭 상승 시 거래량 5배 가정
                 'rsi_14': float(df['rsi_14'].iloc[-1]) if not df['rsi_14'].isna().iloc[-1] else None,
                 'atr_14': float(df['atr_14'].iloc[-1]) if not df['atr_14'].isna().iloc[-1] else None,
                 'atr_ratio': message.gap_rate / float(df['atr_14'].iloc[-1]) if not df['atr_14'].isna().iloc[-1] else None,
@@ -191,9 +206,11 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 'above_ma5': 1 if message.stock_open > df['ma_5'].iloc[-1] else 0 if not df['ma_5'].isna().iloc[-1] else None,
                 'above_ma20': 1 if message.stock_open > df['ma_20'].iloc[-1] else 0 if not df['ma_20'].isna().iloc[-1] else None,
                 'above_ma50': 1 if message.stock_open > df['ma_50'].iloc[-1] else 0 if not df['ma_50'].isna().iloc[-1] else None,
-                'return_5d': None,
-                'return_20d': None,
-                'consecutive_up_days': None,
+
+                # ✅ 추세 Feature (갭 왜곡 방지: 어제 종가 기준)
+                'return_5d': ((df['close'].iloc[-1] - df['close'].iloc[-5]) / df['close'].iloc[-5] * 100) if len(df) >= 6 else None,
+                'return_20d': ((df['close'].iloc[-1] - df['close'].iloc[-20]) / df['close'].iloc[-20] * 100) if len(df) >= 21 else None,
+                'consecutive_up_days': None,  # 오늘 결과 필요, 생략
                 # 추가된 Feature들
                 'prev_upper_shadow': prev_upper_shadow,
                 'prev_lower_shadow': prev_lower_shadow,
@@ -264,34 +281,34 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                     f"(종목: {message.stock_code})"
                 )
 
-            # ========================================
-            # 3.5. Feature CSV 저장 (디버깅용)
-            # ========================================
-            try:
-                from pathlib import Path
-                feature_dir = Path("/app/data/features")
-                feature_dir.mkdir(parents=True, exist_ok=True)
+            # # ========================================
+            # # 3.5. Feature CSV 저장 (디버깅용)
+            # # ========================================
+            # try:
+            #     from pathlib import Path
+            #     feature_dir = Path("/app/data/features")
+            #     feature_dir.mkdir(parents=True, exist_ok=True)
 
-                csv_path = feature_dir / "predictions.csv"
+            #     csv_path = feature_dir / "predictions.csv"
 
-                # 메타 정보 추가
-                X_with_meta = X.copy()
-                X_with_meta.insert(0, 'timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-                X_with_meta.insert(1, 'stock_code', message.stock_code)
-                X_with_meta.insert(2, 'stock_name', message.stock_name)
-                X_with_meta.insert(3, 'date', today.strftime('%Y-%m-%d'))
-                X_with_meta.insert(4, 'stock_open', message.stock_open)
-                X_with_meta.insert(5, 'gap_rate', message.gap_rate)
+            #     # 메타 정보 추가
+            #     X_with_meta = X.copy()
+            #     X_with_meta.insert(0, 'timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            #     X_with_meta.insert(1, 'stock_code', message.stock_code)
+            #     X_with_meta.insert(2, 'stock_name', message.stock_name)
+            #     X_with_meta.insert(3, 'date', today.strftime('%Y-%m-%d'))
+            #     X_with_meta.insert(4, 'stock_open', message.stock_open)
+            #     X_with_meta.insert(5, 'gap_rate', message.gap_rate)
 
-                # 파일이 없으면 헤더와 함께 생성, 있으면 append
-                if not csv_path.exists():
-                    X_with_meta.to_csv(csv_path, index=False, encoding='utf-8-sig', mode='w')
-                    logger.info(f"Feature CSV 생성: {csv_path}")
-                else:
-                    X_with_meta.to_csv(csv_path, index=False, encoding='utf-8-sig', mode='a', header=False)
-                    logger.debug(f"Feature 추가: {message.stock_code}")
-            except Exception as e:
-                logger.warning(f"Feature CSV 저장 실패: {e}")
+            #     # 파일이 없으면 헤더와 함께 생성, 있으면 append
+            #     if not csv_path.exists():
+            #         X_with_meta.to_csv(csv_path, index=False, encoding='utf-8-sig', mode='w', na_rep='')
+            #         logger.info(f"Feature CSV 생성: {csv_path}")
+            #     else:
+            #         X_with_meta.to_csv(csv_path, index=False, encoding='utf-8-sig', mode='a', header=False, na_rep='')
+            #         logger.debug(f"Feature 추가: {message.stock_code}")
+            # except Exception as e:
+            #     logger.warning(f"Feature CSV 저장 실패: {e}")
 
             # ========================================
             # 4. 예측 수행
@@ -309,14 +326,15 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
             # ========================================
             # 매매 신호 결정
             signal = 'HOLD'
-            if pred['prob_up'] >= settings.min_prob_up and pred['expected_return'] >= settings.min_expected_return:
+            if pred['prob_up'] >= settings.min_prob_up :
+            # and pred['expected_return'] >= settings.min_expected_return:
                 signal = 'BUY'
             
             # 신뢰도 결정
             confidence = None
-            if pred['prob_up'] >= 0.7:
+            if pred['prob_up'] >= 0.4:
                 confidence = 'HIGH'
-            elif pred['prob_up'] >= 0.5:
+            elif pred['prob_up'] >= 0.3:
                 confidence = 'MEDIUM'
             else:
                 confidence = 'LOW'
@@ -326,6 +344,7 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 stock_code=message.stock_code,
                 stock_name=message.stock_name,
                 exchange=message.exchange,
+                market_cap=market_cap,
                 date=today.strftime('%Y-%m-%d'),
                 gap_rate=message.gap_rate,
                 stock_open=message.stock_open,
@@ -348,23 +367,115 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 f"expected_return={pred['expected_return']:.2f}% "
                 f"signal={signal}"
             )
-            
+
+            # ========================================
+            # 5.5. 예측 결과 CSV 업데이트 (디버깅용)
+            # ========================================
+            # try:
+            #     from pathlib import Path
+            #     feature_dir = Path("/app/data/features")
+            #     csv_path = feature_dir / "predictions.csv"
+
+            #     if csv_path.exists():
+            #         # 기존 CSV 읽기
+            #         df_csv = pd.read_csv(csv_path, encoding='utf-8-sig')
+
+            #         # 마지막 row (방금 추가한 feature)에 예측 결과 추가
+            #         if len(df_csv) > 0:
+            #             last_idx = len(df_csv) - 1
+
+            #             # ✅ 카프카 메시지의 값을 직접 사용 (일관성 보장)
+            #             df_csv.loc[last_idx, 'prob_up'] = result_message.prob_up
+            #             df_csv.loc[last_idx, 'prob_down'] = result_message.prob_down
+            #             df_csv.loc[last_idx, 'predicted_direction'] = result_message.predicted_direction
+            #             df_csv.loc[last_idx, 'expected_return'] = result_message.expected_return
+            #             df_csv.loc[last_idx, 'return_if_up'] = result_message.return_if_up
+            #             df_csv.loc[last_idx, 'return_if_down'] = result_message.return_if_down
+            #             df_csv.loc[last_idx, 'max_return_if_up'] = result_message.max_return_if_up if result_message.max_return_if_up is not None else ''
+            #             df_csv.loc[last_idx, 'take_profit_target'] = result_message.take_profit_target if result_message.take_profit_target is not None else ''
+            #             df_csv.loc[last_idx, 'signal'] = result_message.signal
+            #             df_csv.loc[last_idx, 'confidence'] = result_message.confidence
+
+            #             # 덮어쓰기 (빈 값을 빈 문자열로 명시)
+            #             df_csv.to_csv(csv_path, index=False, encoding='utf-8-sig', na_rep='')
+            #             logger.debug(f"예측 결과 업데이트: {message.stock_code}")
+            # except Exception as e:
+            #     logger.warning(f"예측 결과 CSV 업데이트 실패: {e}")            
             # ========================================
             # 6. Kafka 발행
             # ========================================
-            producer = PredictionProducer()
-            success = producer.send_prediction(result_message)
+            # producer = PredictionProducer()
+            # success = producer.send_prediction(result_message)
             
-            if success:
-                logger.info(f"✓ Kafka 발행 완료: {message.stock_code}")
-            else:
-                logger.error(f"✗ Kafka 발행 실패: {message.stock_code}")
+            # if success:
+            #     logger.info(f"✓ Kafka 발행 완료: {message.stock_code}")
+            # else:
+            #     logger.error(f"✗ Kafka 발행 실패: {message.stock_code}")
             
             # ========================================
-            # 7. (선택) DB 저장 - TODO: gap_predictions 테이블 생성 후 구현
+            # 7. DB 저장
             # ========================================
-            # TODO: 예측 결과를 gap_predictions 테이블에 저장
-            # - id, stock_code, date, gap_pct, prob_up, expected_return 등
+            try:
+                # 기존 예측이 있는지 확인 (같은 날짜, 같은 종목)
+                existing_prediction = session.query(GapPredictions).filter(
+                    and_(
+                        GapPredictions.stock_code == message.stock_code,
+                        GapPredictions.prediction_date == today
+                    )
+                ).first()
+                
+                # SignalType과 ConfidenceLevel 변환
+                signal_enum = SignalType[result_message.signal]
+                confidence_enum = ConfidenceLevel[result_message.confidence] if result_message.confidence else None
+                
+                if existing_prediction:
+                    # 기존 예측 업데이트
+                    existing_prediction.timestamp = result_message.timestamp.date()
+                    existing_prediction.stock_name = result_message.stock_name
+                    existing_prediction.gap_rate = result_message.gap_rate
+                    existing_prediction.stock_open = result_message.stock_open
+                    existing_prediction.prob_up = result_message.prob_up
+                    existing_prediction.prob_down = result_message.prob_down
+                    existing_prediction.predicted_direction = result_message.predicted_direction
+                    existing_prediction.expected_return = result_message.expected_return
+                    existing_prediction.return_if_up = result_message.return_if_up
+                    existing_prediction.return_if_down = result_message.return_if_down
+                    existing_prediction.max_return_if_up = result_message.max_return_if_up
+                    existing_prediction.take_profit_target = result_message.take_profit_target
+                    existing_prediction.signal = signal_enum
+                    existing_prediction.model_version = result_message.model_version
+                    existing_prediction.confidence = confidence_enum
+                    
+                    logger.info(f"✓ 예측 결과 업데이트: {message.stock_code} ({today})")
+                else:
+                    # 새 예측 저장
+                    new_prediction = GapPredictions(
+                        timestamp=result_message.timestamp.date(),
+                        stock_code=result_message.stock_code,
+                        stock_name=result_message.stock_name,
+                        prediction_date=today,
+                        gap_rate=result_message.gap_rate,
+                        stock_open=result_message.stock_open,
+                        prob_up=result_message.prob_up,
+                        prob_down=result_message.prob_down,
+                        predicted_direction=result_message.predicted_direction,
+                        expected_return=result_message.expected_return,
+                        return_if_up=result_message.return_if_up,
+                        return_if_down=result_message.return_if_down,
+                        max_return_if_up=result_message.max_return_if_up,
+                        take_profit_target=result_message.take_profit_target,
+                        signal=signal_enum,
+                        model_version=result_message.model_version,
+                        confidence=confidence_enum,
+                    )
+                    session.add(new_prediction)
+                    logger.info(f"✓ 예측 결과 저장: {message.stock_code} ({today})")
+                
+                session.commit()
+                
+            except Exception as e:
+                session.rollback()
+                logger.error(f"✗ DB 저장 실패: {message.stock_code} - {e}", exc_info=True)
             
             return result_message
             

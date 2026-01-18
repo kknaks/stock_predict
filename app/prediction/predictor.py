@@ -100,7 +100,7 @@ class HybridPredictor:
             return_if_down = self.regressor_down.model.predict(X_input)
         
         # 4. 기대 수익률 계산
-        expected_return = (prob_up * return_if_up) + (prob_down * return_if_down)
+        expected_return = ((prob_up * 3 * return_if_up) + (prob_down * 1 * return_if_down)) / 4
         
         # 5. 예측 방향
         predicted_direction = (prob_up >= self.threshold).astype(int)

@@ -9,7 +9,7 @@ from kafka import KafkaConsumer
 from kafka.errors import KafkaError
 
 from app.config.kafka_connections import get_kafka_config
-from .schemas import GapCandidateMessage
+from .schemas import GapCandidateMessage, GapCandidateBatchMessage
 
 logger = logging.getLogger(__name__)
 
@@ -60,15 +60,15 @@ class GapCandidateConsumer:
         """
         메시지 수신 (non-blocking)
         
-        Note: 약 60건의 메시지가 한 번에 발행되므로 배치 처리는 불필요합니다.
-        단순히 모든 메시지를 한 번에 가져와 반환합니다.
+        Note: 배치 메시지 형식으로 발행되므로, 하나의 배치 메시지를 받아서
+        개별 종목 메시지 리스트로 변환하여 반환합니다.
 
         Args:
-            max_messages: 최대 수신 메시지 수 (기본값: 100, 실제로는 ~60건)
+            max_messages: 최대 수신 메시지 수 (기본값: 100, 실제로는 배치 1개)
             timeout_ms: 타임아웃 (밀리초)
 
         Returns:
-            수신된 메시지 리스트
+            개별 종목 메시지 리스트
         """
         if not self.consumer:
             raise RuntimeError("Consumer not initialized")
@@ -86,20 +86,29 @@ class GapCandidateConsumer:
             for topic_partition, records_list in records.items():
                 for record in records_list:
                     try:
-                        # JSON 파싱 및 검증
-                        message = GapCandidateMessage.from_json(record.value)
-                        messages.append(message)
+                        # 배치 메시지 파싱
+                        batch_message = GapCandidateBatchMessage.from_json(record.value)
+                        
+                        # 개별 메시지로 변환
+                        individual_messages = batch_message.to_individual_messages()
+                        messages.extend(individual_messages)
 
-                        logger.debug(
-                            f"Received: {message.stock_code} ({message.stock_name}) "
-                            f"gap={message.gap_rate:.2f}%"
+                        logger.info(
+                            f"✓ Received batch message: {batch_message.total_count} stocks "
+                            f"(timestamp: {batch_message.timestamp})"
                         )
+                        
+                        for msg in individual_messages:
+                            logger.debug(
+                                f"  - {msg.stock_code} ({msg.stock_name}) "
+                                f"gap={msg.gap_rate:.2f}%"
+                            )
                     except Exception as e:
-                        logger.error(f"Failed to parse message: {e}")
+                        logger.error(f"Failed to parse batch message: {e}")
                         logger.error(f"Raw message: {record.value}")
 
             if messages:
-                logger.info(f"✓ Consumed {len(messages)} messages from {self.topic}")
+                logger.info(f"✓ Consumed {len(messages)} individual messages from {self.topic}")
 
         except KafkaError as e:
             logger.error(f"Error consuming messages: {e}")
@@ -114,11 +123,11 @@ class GapCandidateConsumer:
         """
         스트리밍 모드로 메시지 수신 (blocking)
         
-        Note: 메시지가 각 1건씩 총 60건 정도만 오므로 배치 처리는 제거했습니다.
-        메시지를 하나씩 즉시 처리합니다.
+        Note: 배치 메시지 형식으로 발행되므로, 하나의 배치 메시지를 받아서
+        개별 종목 메시지로 변환한 후 각각을 처리합니다.
 
         Args:
-            handler: 메시지 처리 함수
+            handler: 개별 종목 메시지 처리 함수
         """
         if not self.consumer:
             raise RuntimeError("Consumer not initialized")
@@ -128,14 +137,22 @@ class GapCandidateConsumer:
         try:
             for message in self.consumer:
                 try:
-                    # JSON 파싱 및 검증
-                    gap_message = GapCandidateMessage.from_json(message.value)
+                    # 배치 메시지 파싱
+                    batch_message = GapCandidateBatchMessage.from_json(message.value)
                     
-                    # 메시지를 즉시 처리 (배치 없이)
-                    handler(gap_message)
+                    # 개별 메시지로 변환하여 각각 처리
+                    individual_messages = batch_message.to_individual_messages()
+                    
+                    logger.info(
+                        f"✓ Received batch: {batch_message.total_count} stocks, "
+                        f"processing individually..."
+                    )
+                    
+                    for gap_message in individual_messages:
+                        handler(gap_message)
 
                 except Exception as e:
-                    logger.error(f"Error processing message: {e}")
+                    logger.error(f"Error processing batch message: {e}")
                     logger.error(f"Raw message: {message.value}")
 
         except KeyboardInterrupt:
