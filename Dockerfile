@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y \
 # Poetry 설치
 RUN pip install --no-cache-dir poetry==1.8.3
 
-# Poetry 설정 (가상환경 비활성화)
+# Poetry 설정 (가상환경 비활성화, keyring 비활성화)
+ENV PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
 RUN poetry config virtualenvs.create false
 
 # 의존성 파일 복사
