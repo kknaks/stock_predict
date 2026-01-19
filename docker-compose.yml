@@ -8,50 +8,6 @@ services:
       dockerfile: Dockerfile
     container_name: stock-predict-ai
     restart: unless-stopped
-    environment:
-      # Database (stock-predict-network의 DB 사용)
-      DB_HOST: stock-predict-db
-      DB_PORT: 5432
-      DB_NAME: stock_predict
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_USE_DOCKER_NETWORK: "true"
-      DB_DOCKER_HOST: stock-predict-db
-      DB_ECHO: "false"
-
-      # Kafka (stock-predict-network의 Redpanda 사용)
-      KAFKA_USE_INTERNAL: "true"
-      KAFKA_BOOTSTRAP_SERVERS_INTERNAL: redpanda-0:9092,redpanda-1:9092,redpanda-2:9092
-      KAFKA_GROUP_ID: ai-server-group
-      KAFKA_AUTO_OFFSET_RESET: latest
-      KAFKA_ENABLE_AUTO_COMMIT: "true"
-      KAFKA_MAX_POLL_RECORDS: 100
-
-      # Topics
-      TOPIC_GAP_CANDIDATE: extract_daily_candidate
-      TOPIC_PREDICTION_RESULT: ai_prediction_result
-
-      # Model
-      MODEL_PATH: /app/models/stacking/stacking_hybrid_model.pkl
-
-      # Feature 계산 설정
-      FEATURE_LOOKBACK_DAYS: 60
-
-      # 예측 설정
-      PREDICTION_THRESHOLD: 0.4
-      MIN_EXPECTED_RETURN: 1.0
-      MIN_PROB_UP: 0.4
-      TAKE_PROFIT_RATIO: 0.8
-      STOP_LOSS_RATIO: 0.5
-      MAX_POSITIONS: 20
-
-      # Timezone
-      TZ: Asia/Seoul
-
-      # Python
-      PYTHONUNBUFFERED: 1
-      PYTHONPATH: /app
-
     volumes:
       # 모델 파일 마운트 (로컬 models 디렉토리)
       - ./models:/app/models:ro
