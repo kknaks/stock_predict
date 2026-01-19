@@ -4,13 +4,16 @@ Kafka 메시지 스키마 정의
 Pydantic을 사용하여 메시지 검증 및 직렬화/역직렬화
 """
 
+import ast
+import json
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Union
 from pydantic import BaseModel, Field, field_validator
 
 
 class StockInfo(BaseModel):
     """배치 메시지 내 개별 종목 정보"""
+    strategy_id: int = Field(..., description="전략 ID")
     stock_code: str = Field(..., description="종목 코드")
     stock_name: str = Field(..., description="종목명")
     exchange: str = Field(..., description="거래소 (KOSPI/KOSDAQ)")
@@ -37,9 +40,40 @@ class GapCandidateBatchMessage(BaseModel):
     stocks: List[StockInfo] = Field(..., description="갭 상승 종목 리스트")
 
     @classmethod
-    def from_json(cls, json_str: str) -> 'GapCandidateBatchMessage':
-        """JSON 문자열에서 생성 (Kafka 수신용)"""
-        return cls.model_validate_json(json_str)
+    def from_json(cls, json_str: Union[str, bytes]) -> 'GapCandidateBatchMessage':
+        """
+        JSON 문자열 또는 Python 딕셔너리 문자열에서 생성 (Kafka 수신용)
+        
+        Args:
+            json_str: JSON 문자열, Python 딕셔너리 문자열, 또는 bytes
+            
+        Note:
+            Kafka message.value는 bytes이거나 문자열일 수 있습니다.
+            또한 발행자가 Python dict를 str()로 변환한 경우도 처리합니다.
+        """
+        # bytes인 경우 decode
+        if isinstance(json_str, bytes):
+            json_str = json_str.decode('utf-8')
+        
+        # 문자열로 변환 (혹시 다른 타입인 경우)
+        if not isinstance(json_str, str):
+            json_str = str(json_str)
+        
+        # 먼저 JSON 형식인지 시도
+        try:
+            return cls.model_validate_json(json_str)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            # JSON 파싱 실패 시 Python 딕셔너리 문자열로 파싱 시도
+            try:
+                # ast.literal_eval()로 안전하게 Python 딕셔너리로 변환
+                data = ast.literal_eval(json_str)
+                # 딕셔너리를 직접 Pydantic 모델로 변환
+                return cls.model_validate(data)
+            except (ValueError, SyntaxError) as e:
+                raise ValueError(
+                    f"Invalid message format. Expected JSON or Python dict string, "
+                    f"but got: {json_str[:200]}... Error: {e}"
+                )
 
     def to_individual_messages(self) -> List['GapCandidateMessage']:
         """
@@ -52,6 +86,7 @@ class GapCandidateBatchMessage(BaseModel):
         for stock in self.stocks:
             message = GapCandidateMessage(
                 timestamp=self.timestamp,
+                strategy_id=stock.strategy_id,
                 stock_code=stock.stock_code,
                 stock_name=stock.stock_name,
                 exchange=stock.exchange,
@@ -74,6 +109,7 @@ class GapCandidateMessage(BaseModel):
     발행자: 데이터 수집 시스템
     """
     timestamp: datetime = Field(..., description="메시지 발행 시각")
+    strategy_id: int = Field(..., description="전략 ID")
     stock_code: str = Field(..., description="종목 코드 (InfoCode)")
     stock_name: str = Field(..., description="종목명")
     exchange: str = Field(..., description="거래소 (KOSPI/KOSDAQ)")
@@ -128,6 +164,7 @@ class PredictionResultMessage(BaseModel):
     stock_name: str = Field(..., description="종목명")
     market_cap: int = Field(..., description="시가총액")
     exchange: str = Field(..., description="거래소")
+    strategy_id: int = Field(..., description="전략 ID")
     date: str = Field(..., description="예측 대상 날짜 (YYYY-MM-DD)")
 
     # 입력 데이터

@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.config.db_connections import get_sync_session_factory
 from app.config.settings import settings
-from app.database.database.stocks import StockPrices, MarketIndices, GapPredictions, SignalType, ConfidenceLevel, StockMetadata
+from app.database.database.stocks import StockPrices, MarketIndices, StockMetadata
+from app.database.database.strategy import GapPredictions, SignalType, ConfidenceLevel
 from app.kafka.schemas import GapCandidateMessage, PredictionResultMessage
 from app.kafka.producer import PredictionProducer
 from app.prediction.predictor import load_predictor
@@ -344,6 +345,7 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 stock_code=message.stock_code,
                 stock_name=message.stock_name,
                 exchange=message.exchange,
+                strategy_id=message.strategy_id,
                 market_cap=market_cap,
                 date=today.strftime('%Y-%m-%d'),
                 gap_rate=message.gap_rate,
@@ -453,6 +455,8 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                         timestamp=result_message.timestamp.date(),
                         stock_code=result_message.stock_code,
                         stock_name=result_message.stock_name,
+                        exchange=result_message.exchange,
+                        strategy_id=result_message.strategy_id,
                         prediction_date=today,
                         gap_rate=result_message.gap_rate,
                         stock_open=result_message.stock_open,
