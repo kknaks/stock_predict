@@ -133,19 +133,12 @@ class GapCandidateMessage(BaseModel):
             raise ValueError(f"exchange must be one of {allowed}")
         return v.upper()
 
-    @field_validator('gap_rate')
-    @classmethod
-    def validate_gap_rate(cls, v: float) -> float:
-        """
-        갭 비율 검증 (-200% ~ 500%)
-        
-        일반적인 주식 시장에서는 ±30% 제한이지만, 
-        데이터 오류나 특수 상황(우선주, ELW, 분할/병합 등)을 고려하여 
-        더 넓은 범위를 허용합니다.
-        """
-        if not -200.0 <= v <= 500.0:
-            raise ValueError(f"gap_rate must be between -200.0 and 500.0, but got {v}")
-        return v
+    # gap_rate 검증 제거: 신규 상장, 분할/병합 등으로 인해 갭률이 매우 클 수 있음
+    # @field_validator('gap_rate')
+    # @classmethod
+    # def validate_gap_rate(cls, v: float) -> float:
+    #     """갭 비율 검증 제거 - 신규 상장 등 특수 상황 고려"""
+    #     return v
 
     def to_json(self) -> str:
         """JSON 문자열로 변환 (Kafka 발행용)"""
