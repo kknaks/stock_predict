@@ -107,9 +107,21 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 MarketIndices.date == today
             ).first()
             
+            # 오늘 데이터가 없으면 어제 데이터로 대체
             if not market_indices:
-                logger.warning(f"시장 지수 데이터 없음: {today}")
-                # market_gap_diff는 NaN으로 처리
+                yesterday = today - timedelta(days=1)
+                market_indices = session.query(MarketIndices).filter(
+                    MarketIndices.date == yesterday
+                ).first()
+                
+                if market_indices:
+                    logger.warning(
+                        f"오늘 시장 지수 데이터 없음 ({today}), "
+                        f"어제 데이터로 대체: {yesterday}"
+                    )
+                else:
+                    logger.warning(f"시장 지수 데이터 없음: {today} (어제 데이터도 없음)")
+                    # market_gap_diff는 NaN으로 처리
             
             # ========================================
             # 2. DataFrame 생성 및 오늘 데이터 추가
