@@ -169,6 +169,7 @@ class PredictionResultMessage(BaseModel):
     # 입력 데이터
     gap_rate: float = Field(..., description="갭 상승률 (%)")
     stock_open: float = Field(..., description="당일 시가")
+    avg_volume_20d: Optional[int] = Field(None, description="20일 평균 거래량")
 
     # 예측 결과
     prob_up: float = Field(..., ge=0, le=1, description="상승 확률")

@@ -157,7 +157,10 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 })
             
             df = pd.DataFrame(historical_data)
-            
+
+            # 20일 평균 거래량 계산
+            avg_volume_20d = int(df['volume'].tail(20).mean()) if len(df) >= 20 else None
+
             # 오늘 데이터 추가 (전일 종가 필요)
             if df.empty or df['close'].iloc[-1] is None:
                 logger.warning(f"전일 종가 데이터 없음: {message.stock_code}")
@@ -362,6 +365,7 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 date=today.strftime('%Y-%m-%d'),
                 gap_rate=message.gap_rate,
                 stock_open=message.stock_open,
+                avg_volume_20d=avg_volume_20d,
                 prob_up=float(pred['prob_up']),
                 prob_down=float(pred['prob_down']),
                 predicted_direction=int(pred['predicted_direction']),
