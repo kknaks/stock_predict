@@ -33,6 +33,7 @@ class GapCandidateBatchMessage(BaseModel):
     모든 종목을 하나의 메시지로 묶어서 발행
     """
     timestamp: datetime = Field(..., description="메시지 발행 시각")
+    exchange_type: str = Field(..., description="거래소 유형 (NXT/KRX)")
     kospi_open: float = Field(..., description="KOSPI 시가")
     kosdaq_open: float = Field(..., description="KOSDAQ 시가")
     kospi200_open: float = Field(..., description="KOSPI200 시가")
@@ -90,6 +91,7 @@ class GapCandidateBatchMessage(BaseModel):
                 stock_code=stock.stock_code,
                 stock_name=stock.stock_name,
                 exchange=stock.exchange,
+                exchange_type=self.exchange_type,
                 stock_open=stock.stock_open,
                 gap_rate=stock.gap_rate,
                 expected_change_rate=stock.expected_change_rate,
@@ -113,6 +115,7 @@ class GapCandidateMessage(BaseModel):
     stock_code: str = Field(..., description="종목 코드 (InfoCode)")
     stock_name: str = Field(..., description="종목명")
     exchange: str = Field(..., description="거래소 (KOSPI/KOSDAQ)")
+    exchange_type: str = Field(..., description="거래소 유형 (NXT/KRX)")
 
     # 가격 정보
     stock_open: float = Field(..., gt=0, description="당일 시가")
@@ -221,6 +224,7 @@ class PredictionResultBatchMessage(BaseModel):
     """
     timestamp: datetime = Field(default_factory=datetime.now, description="배치 발행 시각")
     total_count: int = Field(..., ge=0, description="예측 결과 수")
+    exchange_type: str = Field(..., description="거래소 유형 (NXT/KRX)")
     predictions: List[PredictionResultMessage] = Field(..., description="예측 결과 리스트")
 
     def to_json(self) -> str:

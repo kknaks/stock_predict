@@ -110,6 +110,7 @@ def main():
                     batch_result = PredictionResultBatchMessage(
                         timestamp=datetime.now(),
                         total_count=len(prediction_results),
+                        exchange_type=batch_message.exchange_type,
                         predictions=prediction_results
                     )
                     
