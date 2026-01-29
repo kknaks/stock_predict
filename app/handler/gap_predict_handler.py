@@ -102,26 +102,15 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 )
                 return None
             
-            # 1-2. 오늘 날짜의 MarketIndices 조회
-            market_indices = session.query(MarketIndices).filter(
-                MarketIndices.date == today
-            ).first()
-            
-            # 오늘 데이터가 없으면 어제 데이터로 대체
-            if not market_indices:
-                yesterday = today - timedelta(days=1)
-                market_indices = session.query(MarketIndices).filter(
-                    MarketIndices.date == yesterday
-                ).first()
-                
-                if market_indices:
-                    logger.warning(
-                        f"오늘 시장 지수 데이터 없음 ({today}), "
-                        f"어제 데이터로 대체: {yesterday}"
-                    )
-                else:
-                    logger.warning(f"시장 지수 데이터 없음: {today} (어제 데이터도 없음)")
-                    # market_gap_diff는 NaN으로 처리
+            # 1-2. 전일 MarketIndices 조회 (시장 갭 계산용)
+            # 당일 데이터는 아직 없으므로, 전일 종가를 가져와서
+            # 메시지의 시장 시가와 비교하여 market_gap_pct를 직접 계산
+            prev_market_indices = session.query(MarketIndices).filter(
+                MarketIndices.date < today
+            ).order_by(MarketIndices.date.desc()).first()
+
+            if not prev_market_indices:
+                logger.warning(f"전일 시장 지수 데이터 없음 (today={today})")
             
             # ========================================
             # 2. DataFrame 생성 및 오늘 데이터 추가
@@ -238,24 +227,20 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                 'is_quarter_end': is_quarter_end,
             }
             
-            # 시장 갭 차이 계산
-            if market_indices:
-                # ✅ 학습 시와 동일하게: KOSPI200 사용 (KOSPI 종목의 경우)
-                # market_features.py의 우선순위: spy > kospi200 > 첫 번째
-                if message.exchange == 'KOSPI':
-                    # KOSPI 종목 → KOSPI200 지수 사용
-                    market_gap = float(market_indices.kospi200_gap_pct) if market_indices.kospi200_gap_pct else None
-                elif message.exchange == 'KOSDAQ':
-                    market_gap = float(market_indices.kosdaq_gap_pct) if market_indices.kosdaq_gap_pct else None
-                else:
-                    market_gap = None
+            # 시장 갭 차이 계산: 메시지의 시장 시가 + DB 전일 시장 종가로 직접 계산
+            market_gap = None
+            if prev_market_indices:
+                if message.exchange == 'KOSPI' and message.kospi200_open and prev_market_indices.kospi200_close:
+                    market_gap = (message.kospi200_open - prev_market_indices.kospi200_close) / prev_market_indices.kospi200_close * 100
+                elif message.exchange == 'KOSDAQ' and message.kosdaq_open and prev_market_indices.kosdaq_close:
+                    market_gap = (message.kosdaq_open - prev_market_indices.kosdaq_close) / prev_market_indices.kosdaq_close * 100
 
-                if market_gap is not None:
-                    today_row['market_gap_diff'] = message.gap_rate - market_gap
-                else:
-                    today_row['market_gap_diff'] = None
+            if market_gap is not None:
+                today_row['market_gap_diff'] = message.gap_rate - market_gap
+                logger.info(f"market_gap_pct={market_gap:.2f}%, market_gap_diff={today_row['market_gap_diff']:.2f}%")
             else:
                 today_row['market_gap_diff'] = None
+                logger.warning(f"market_gap 계산 불가: {message.stock_code} (exchange={message.exchange})")
             
             df = pd.concat([df, pd.DataFrame([today_row])], ignore_index=True)
             
