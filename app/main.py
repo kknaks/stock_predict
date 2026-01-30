@@ -106,24 +106,21 @@ def main():
                         logger.error(f"종목 처리 중 오류 ({message.stock_code}): {e}", exc_info=True)
                 
                 # 배치 예측 결과 메시지 생성 및 발행
-                if prediction_results:
-                    batch_result = PredictionResultBatchMessage(
-                        timestamp=datetime.now(),
-                        total_count=len(prediction_results),
-                        exchange_type=batch_message.exchange_type,
-                        predictions=prediction_results
+                batch_result = PredictionResultBatchMessage(
+                    timestamp=datetime.now(),
+                    total_count=len(prediction_results),
+                    exchange_type=batch_message.exchange_type,
+                    predictions=prediction_results
+                )
+
+                success = producer.send_batch_message(batch_result)
+                if success:
+                    logger.info(
+                        f"✓ 배치 예측 결과 발행 완료: {len(prediction_results)}개 종목 "
+                        f"(성공: {success_count}, 실패: {failed_count})"
                     )
-                    
-                    success = producer.send_batch_message(batch_result)
-                    if success:
-                        logger.info(
-                            f"✓ 배치 예측 결과 발행 완료: {len(prediction_results)}개 종목 "
-                            f"(성공: {success_count}, 실패: {failed_count})"
-                        )
-                    else:
-                        logger.error("✗ 배치 예측 결과 발행 실패")
                 else:
-                    logger.warning("발행할 예측 결과가 없습니다.")
+                    logger.error("✗ 배치 예측 결과 발행 실패")
                     
             except Exception as e:
                 logger.error(f"배치 메시지 처리 중 오류: {e}", exc_info=True)
