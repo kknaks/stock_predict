@@ -50,7 +50,8 @@ class StackingModelTrainer:
         valid_size: float = 0.1,
         threshold: float = 0.4,
         n_estimators: int = 300,
-        verbose: bool = True
+        verbose: bool = True,
+        test_recent: bool = False,
     ):
         """
         Args:
@@ -62,6 +63,7 @@ class StackingModelTrainer:
             threshold: 분류 임계값
             n_estimators: 앙상블 모델 수
             verbose: 상세 출력 여부
+            test_recent: True면 최근 데이터로 test, False면 랜덤 분할
         """
         self.data_path = Path(data_path)
         self.model_dir = Path(model_dir)
@@ -70,6 +72,7 @@ class StackingModelTrainer:
         self.valid_size = valid_size
         self.threshold = threshold
         self.n_estimators = n_estimators
+        self.test_recent = test_recent
         self.verbose = verbose
         
         # 모델 인스턴스
@@ -140,23 +143,54 @@ class StackingModelTrainer:
         X_all = self.df_model[self.features]
         y_direction = self.df_model[TARGET_DIRECTION]
         y_return = self.df_model[TARGET_RETURN]
-        
-        # Train+Valid / Test 분할
-        X_temp, X_test, y_dir_temp, y_dir_test, y_ret_temp, y_ret_test = train_test_split(
-            X_all, y_direction, y_return,
-            test_size=self.test_size,
-            random_state=self.random_state,
-            stratify=y_direction
-        )
-        
-        # Train / Valid 분할
-        valid_ratio = self.valid_size / (1 - self.test_size)
-        X_train, X_valid, y_dir_train, y_dir_valid, y_ret_train, y_ret_valid = train_test_split(
-            X_temp, y_dir_temp, y_ret_temp,
-            test_size=valid_ratio,
-            random_state=self.random_state,
-            stratify=y_dir_temp
-        )
+
+        if self.test_recent and 'date' in self.df_model.columns:
+            # test만 최근 데이터, train+valid는 나머지에서 랜덤 분할
+            df_sorted = self.df_model.sort_values('date')
+            n = len(df_sorted)
+            n_test = int(n * self.test_size)
+
+            rest_idx = df_sorted.index[:n - n_test]
+            test_idx = df_sorted.index[n - n_test:]
+
+            X_test = X_all.loc[test_idx]
+            y_dir_test = y_direction.loc[test_idx]
+            y_ret_test = y_return.loc[test_idx]
+
+            # 나머지(train+valid)는 랜덤 분할
+            X_rest = X_all.loc[rest_idx]
+            y_dir_rest = y_direction.loc[rest_idx]
+            y_ret_rest = y_return.loc[rest_idx]
+
+            valid_ratio = self.valid_size / (1 - self.test_size)
+            X_train, X_valid, y_dir_train, y_dir_valid, y_ret_train, y_ret_valid = train_test_split(
+                X_rest, y_dir_rest, y_ret_rest,
+                test_size=valid_ratio,
+                random_state=self.random_state,
+                stratify=y_dir_rest
+            )
+
+            if self.verbose:
+                test_dates = df_sorted.loc[test_idx, 'date']
+                print(f"\n시간순 분할 (test_recent=True): test만 최근 데이터")
+                print(f"  Train+Valid: ~ {df_sorted.loc[rest_idx, 'date'].max()} (랜덤 분할)")
+                print(f"  Test:  {test_dates.min()} ~ {test_dates.max()} (최근 데이터)")
+        else:
+            # 전체 랜덤 분할
+            X_temp, X_test, y_dir_temp, y_dir_test, y_ret_temp, y_ret_test = train_test_split(
+                X_all, y_direction, y_return,
+                test_size=self.test_size,
+                random_state=self.random_state,
+                stratify=y_direction
+            )
+
+            valid_ratio = self.valid_size / (1 - self.test_size)
+            X_train, X_valid, y_dir_train, y_dir_valid, y_ret_train, y_ret_valid = train_test_split(
+                X_temp, y_dir_temp, y_ret_temp,
+                test_size=valid_ratio,
+                random_state=self.random_state,
+                stratify=y_dir_temp
+            )
         
         if self.verbose:
             print(f"\n전체 데이터 분할:")
@@ -169,14 +203,34 @@ class StackingModelTrainer:
         X_up = df_up[self.features]
         y_up = df_up[TARGET_RETURN]
         y_up_max = df_up[TARGET_MAX_RETURN] if TARGET_MAX_RETURN in df_up.columns else None
-        
-        X_up_temp, X_up_test, y_up_temp, y_up_test = train_test_split(
-            X_up, y_up, test_size=self.test_size, random_state=self.random_state
-        )
-        X_up_train, X_up_valid, y_up_train, y_up_valid = train_test_split(
-            X_up_temp, y_up_temp, test_size=valid_ratio, random_state=self.random_state
-        )
-        
+
+        if self.test_recent and 'date' in df_up.columns:
+            df_up_sorted = df_up.sort_values('date')
+            n_up = len(df_up_sorted)
+            n_up_test = int(n_up * self.test_size)
+
+            up_rest_idx = df_up_sorted.index[:n_up - n_up_test]
+            up_test_idx = df_up_sorted.index[n_up - n_up_test:]
+
+            X_up_test = X_up.loc[up_test_idx]
+            y_up_test = y_up.loc[up_test_idx]
+
+            X_up_rest = X_up.loc[up_rest_idx]
+            y_up_rest = y_up.loc[up_rest_idx]
+
+            valid_ratio_up = self.valid_size / (1 - self.test_size)
+            X_up_train, X_up_valid, y_up_train, y_up_valid = train_test_split(
+                X_up_rest, y_up_rest, test_size=valid_ratio_up, random_state=self.random_state
+            )
+        else:
+            valid_ratio_up = self.valid_size / (1 - self.test_size)
+            X_up_temp, X_up_test, y_up_temp, y_up_test = train_test_split(
+                X_up, y_up, test_size=self.test_size, random_state=self.random_state
+            )
+            X_up_train, X_up_valid, y_up_train, y_up_valid = train_test_split(
+                X_up_temp, y_up_temp, test_size=valid_ratio_up, random_state=self.random_state
+            )
+
         # 고가 데이터 분할
         y_up_max_train, y_up_max_valid, y_up_max_test = None, None, None
         if y_up_max is not None:
@@ -194,13 +248,33 @@ class StackingModelTrainer:
         df_down = self.df_model[self.df_model[TARGET_DIRECTION] == 0].copy()
         X_down = df_down[self.features]
         y_down = df_down[TARGET_RETURN]
-        
-        X_down_temp, X_down_test, y_down_temp, y_down_test = train_test_split(
-            X_down, y_down, test_size=self.test_size, random_state=self.random_state
-        )
-        X_down_train, X_down_valid, y_down_train, y_down_valid = train_test_split(
-            X_down_temp, y_down_temp, test_size=valid_ratio, random_state=self.random_state
-        )
+
+        if self.test_recent and 'date' in df_down.columns:
+            df_down_sorted = df_down.sort_values('date')
+            n_down = len(df_down_sorted)
+            n_down_test = int(n_down * self.test_size)
+
+            down_rest_idx = df_down_sorted.index[:n_down - n_down_test]
+            down_test_idx = df_down_sorted.index[n_down - n_down_test:]
+
+            X_down_test = X_down.loc[down_test_idx]
+            y_down_test = y_down.loc[down_test_idx]
+
+            X_down_rest = X_down.loc[down_rest_idx]
+            y_down_rest = y_down.loc[down_rest_idx]
+
+            valid_ratio_down = self.valid_size / (1 - self.test_size)
+            X_down_train, X_down_valid, y_down_train, y_down_valid = train_test_split(
+                X_down_rest, y_down_rest, test_size=valid_ratio_down, random_state=self.random_state
+            )
+        else:
+            valid_ratio_down = self.valid_size / (1 - self.test_size)
+            X_down_temp, X_down_test, y_down_temp, y_down_test = train_test_split(
+                X_down, y_down, test_size=self.test_size, random_state=self.random_state
+            )
+            X_down_train, X_down_valid, y_down_train, y_down_valid = train_test_split(
+                X_down_temp, y_down_temp, test_size=valid_ratio_down, random_state=self.random_state
+            )
         
         if self.verbose:
             print(f"\n하락 케이스 분할:")

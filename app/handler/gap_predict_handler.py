@@ -7,6 +7,7 @@ Todo.md의 실전 예측 데이터 생성 흐름도 참고
 
 import logging
 from datetime import datetime, timedelta, date
+from pathlib import Path
 from typing import Optional
 import pandas as pd
 import numpy as np
@@ -30,12 +31,19 @@ _predictor = None
 def get_predictor():
     """Predictor 싱글톤 인스턴스 반환 (캐싱)"""
     global _predictor
-    
+
     if _predictor is None:
-        logger.info(f"모델 로드 중: {settings.model_path}")
-        _predictor = load_predictor(settings.model_path, threshold=settings.prediction_threshold)
+        model_path = settings.model_path
+        # active symlink 경로가 없으면 레거시 경로 fallback
+        if not Path(model_path).exists():
+            legacy_path = "./models/stacking/stacking_hybrid_model.pkl"
+            if Path(legacy_path).exists():
+                logger.warning(f"Active symlink 모델 없음, 레거시 경로 사용: {legacy_path}")
+                model_path = legacy_path
+        logger.info(f"모델 로드 중: {model_path}")
+        _predictor = load_predictor(model_path, threshold=settings.prediction_threshold)
         logger.info("✓ Predictor 로드 완료")
-    
+
     return _predictor
 
 

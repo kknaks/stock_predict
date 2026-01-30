@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     # -------------------------------------------
     # Model Storage
     # -------------------------------------------
-    model_path: str = "./models/stacking/stacking_hybrid_model.pkl"
+    model_path: str = "./models/stacking/active/stacking_hybrid_model.pkl"
 
     # -------------------------------------------
     # Feature 계산 설정

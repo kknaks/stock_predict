@@ -37,6 +37,36 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # 재학습 서버 (Kafka Consumer)
+  retraining-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stock-predict-retraining
+    restart: unless-stopped
+    command: ["python", "-m", "retraining.main"]
+    env_file:
+      - .env
+    volumes:
+      - ./models:/app/models
+      - ./data/processed:/app/data/processed:ro
+
+    networks:
+      - stock-predict-network
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
   stock-predict-network:
     external: true
