@@ -103,3 +103,5 @@ secrets.yaml
 
 # Config (contains sensitive settings - root only)
 /config/
+
+models/stacking/
