@@ -448,7 +448,8 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                     existing_prediction.signal = signal_enum
                     existing_prediction.model_version = result_message.model_version
                     existing_prediction.confidence = confidence_enum
-                    
+                    existing_prediction.is_nxt = message.exchange_type == "NXT"
+
                     logger.info(f"✓ 예측 결과 업데이트: {message.stock_code} ({today})")
                 else:
                     # 새 예측 저장
@@ -472,6 +473,7 @@ def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[Predi
                         signal=signal_enum,
                         model_version=result_message.model_version,
                         confidence=confidence_enum,
+                        is_nxt=message.exchange_type == "NXT",
                     )
                     session.add(new_prediction)
                     logger.info(f"✓ 예측 결과 저장: {message.stock_code} ({today})")
