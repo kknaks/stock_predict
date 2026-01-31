@@ -14,10 +14,12 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     gcc \
     g++ \
-    cmake \
     git \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# CMake 3.28+ 설치 (LightGBM v4.6.0 요구)
+RUN pip install cmake>=3.28
 
 RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
     ln -sf /usr/bin/python3.11 /usr/bin/python && \
