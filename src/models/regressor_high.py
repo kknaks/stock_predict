@@ -80,7 +80,7 @@ class StackingRegressorHigh(BaseStackingModel):
                 verbosity=-1,
             )
             if self.use_gpu:
-                lgb_params["device"] = "gpu"
+                lgb_params["device"] = "cuda"
             base_learners.append(('lgb', lgb.LGBMRegressor(**lgb_params)))
         
         return base_learners

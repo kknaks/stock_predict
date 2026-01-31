@@ -3,7 +3,7 @@ FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Seoul
 
-# Python 3.11 + OpenCL + CMake/Boost (LightGBM GPU 소스 빌드용)
+# Python 3.11 + CMake (LightGBM CUDA 소스 빌드용)
 RUN apt-get update && apt-get install -y \
     software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
@@ -17,15 +17,7 @@ RUN apt-get update && apt-get install -y \
     cmake \
     git \
     postgresql-client \
-    ocl-icd-opencl-dev \
-    opencl-headers \
-    nvidia-opencl-dev \
-    libboost-dev \
-    libboost-system-dev \
-    libboost-filesystem-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /etc/OpenCL/vendors \
-    && echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
+    && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
     ln -sf /usr/bin/python3.11 /usr/bin/python && \
@@ -51,9 +43,17 @@ RUN poetry lock --no-update || poetry lock
 # 의존성만 설치 (패키지 자체는 설치하지 않음, --no-root 옵션)
 RUN poetry install --only main --no-root --no-interaction --no-ansi
 
-# LightGBM GPU 버전으로 재설치 (pip 버전은 GPU 미지원)
+# LightGBM CUDA 버전: 소스에서 빌드 (OpenCL 대신 CUDA 직접 사용)
 RUN pip uninstall lightgbm -y && \
-    pip install --no-cache-dir lightgbm --config-settings=cmake.define.USE_GPU=ON
+    cd /tmp && \
+    git clone --recursive --depth 1 https://github.com/microsoft/LightGBM.git && \
+    cd LightGBM && \
+    mkdir build && cd build && \
+    cmake -DUSE_CUDA=1 .. && \
+    make -j$(nproc) && \
+    cd ../python-package && \
+    python setup.py install && \
+    rm -rf /tmp/LightGBM
 
 # 애플리케이션 코드 복사
 COPY app/ ./app/
