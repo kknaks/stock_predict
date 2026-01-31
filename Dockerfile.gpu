@@ -17,7 +17,10 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     ocl-icd-opencl-dev \
     opencl-headers \
-    && rm -rf /var/lib/apt/lists/*
+    nvidia-opencl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /etc/OpenCL/vendors \
+    && echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
 
 RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
     ln -sf /usr/bin/python3.11 /usr/bin/python && \
