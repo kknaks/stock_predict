@@ -54,6 +54,7 @@ RUN pip uninstall lightgbm -y && \
     cmake -DUSE_CUDA=1 .. && \
     make -j$(nproc) && \
     cd ../python-package && \
+    touch ../LICENSE && \
     pip install scikit-build-core && \
     pip install --no-build-isolation . && \
     rm -rf /tmp/LightGBM
