@@ -53,10 +53,10 @@ RUN pip uninstall lightgbm -y && \
     mkdir build && cd build && \
     cmake -DUSE_CUDA=1 .. && \
     make -j$(nproc) && \
-    cd ../python-package && \
-    touch ../LICENSE && \
-    pip install scikit-build-core && \
-    pip install --no-build-isolation . && \
+    cp /tmp/LightGBM/lib_lightgbm.so /usr/local/lib/ && \
+    ldconfig && \
+    pip install lightgbm==4.3.0 --no-deps && \
+    python -c "import lightgbm; print(lightgbm.__version__)" && \
     rm -rf /tmp/LightGBM
 
 # 애플리케이션 코드 복사
