@@ -121,11 +121,12 @@ class StackingRegressorHigh(BaseStackingModel):
                 print(f"  - {name.upper()}")
         
         # Stacking Regressor 생성
+        stacking_n_jobs = 1 if self.use_gpu else self.n_jobs
         self.model = StackingRegressor(
             estimators=base_learners,
             final_estimator=Ridge(alpha=self.ridge_alpha, random_state=self.random_state),
             cv=self.cv_folds,
-            n_jobs=self.n_jobs,
+            n_jobs=stacking_n_jobs,
             verbose=self.verbose
         )
         

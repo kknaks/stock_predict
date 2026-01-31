@@ -135,11 +135,12 @@ class StackingClassifierModel(BaseStackingModel):
                 print(f"  - {name.upper()}")
         
         # Stacking Classifier 생성
+        stacking_n_jobs = 1 if self.use_gpu else self.n_jobs
         self.model = StackingClassifier(
             estimators=base_learners,
             final_estimator=LogisticRegression(max_iter=1000, random_state=self.random_state),
             cv=self.cv_folds,
-            n_jobs=self.n_jobs,
+            n_jobs=stacking_n_jobs,
             verbose=self.verbose
         )
         
