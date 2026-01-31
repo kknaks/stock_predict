@@ -54,7 +54,7 @@ RUN pip uninstall lightgbm -y && \
     cmake -DUSE_CUDA=1 .. && \
     make -j$(nproc) && \
     cd ../python-package && \
-    python setup.py install && \
+    pip install --no-build-isolation . && \
     rm -rf /tmp/LightGBM
 
 # 애플리케이션 코드 복사
