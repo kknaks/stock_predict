@@ -43,19 +43,17 @@ RUN poetry lock --no-update || poetry lock
 # 의존성만 설치 (패키지 자체는 설치하지 않음, --no-root 옵션)
 RUN poetry install --only main --no-root --no-interaction --no-ansi
 
-# LightGBM CUDA 버전: 소스에서 빌드 (OpenCL 대신 CUDA 직접 사용)
-RUN pip uninstall lightgbm -y && \
-    cd /tmp && \
+# LightGBM CUDA 버전: 소스 빌드 후 .so만 교체
+RUN cd /tmp && \
     git clone --recursive https://github.com/microsoft/LightGBM.git && \
     cd LightGBM && \
-    git checkout v4.3.0 && \
+    git checkout v4.6.0 && \
     git submodule update --init --recursive && \
     mkdir build && cd build && \
     cmake -DUSE_CUDA=1 .. && \
     make -j$(nproc) && \
-    cd /tmp/LightGBM && touch LICENSE && \
-    cd python-package && pip install --no-deps . && \
-    python -c "import lightgbm; print(lightgbm.__version__)" && \
+    cp /tmp/LightGBM/lib_lightgbm.so $(python -c "import lightgbm; print(lightgbm.__path__[0])")/lib_lightgbm.so && \
+    python -c "import lightgbm; print('LightGBM version:', lightgbm.__version__)" && \
     rm -rf /tmp/LightGBM
 
 # 애플리케이션 코드 복사
