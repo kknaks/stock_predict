@@ -46,8 +46,10 @@ RUN poetry install --only main --no-root --no-interaction --no-ansi
 # LightGBM CUDA 버전: 소스에서 빌드 (OpenCL 대신 CUDA 직접 사용)
 RUN pip uninstall lightgbm -y && \
     cd /tmp && \
-    git clone --recursive --depth 1 https://github.com/microsoft/LightGBM.git && \
+    git clone --recursive https://github.com/microsoft/LightGBM.git && \
     cd LightGBM && \
+    git checkout v4.3.0 && \
+    git submodule update --init --recursive && \
     mkdir build && cd build && \
     cmake -DUSE_CUDA=1 .. && \
     make -j$(nproc) && \
