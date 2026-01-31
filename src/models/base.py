@@ -4,6 +4,7 @@
 모든 모델에서 공유하는 설정값과 유틸리티 함수
 """
 
+import os
 from typing import Optional, List, Tuple, Dict, Any
 import pandas as pd
 import numpy as np
@@ -200,7 +201,8 @@ class BaseStackingModel:
         cv_folds: int = DEFAULT_CV_FOLDS,
         random_state: int = DEFAULT_RANDOM_STATE,
         n_jobs: int = -1,
-        verbose: int = 1
+        verbose: int = 1,
+        use_gpu: Optional[bool] = None
     ):
         self.n_estimators = n_estimators
         self.max_depth_rf = max_depth_rf
@@ -211,6 +213,7 @@ class BaseStackingModel:
         self.random_state = random_state
         self.n_jobs = n_jobs
         self.verbose = verbose
+        self.use_gpu = use_gpu if use_gpu is not None else os.getenv("USE_GPU", "false").lower() == "true"
         
         self.model = None
         self.features = None

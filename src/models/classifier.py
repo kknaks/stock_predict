@@ -66,33 +66,36 @@ class StackingClassifierModel(BaseStackingModel):
             else:
                 self.scale_pos_weight = 1.0
             
-            base_learners.append(
-                ('xgb', xgb.XGBClassifier(
-                    n_estimators=self.n_estimators,
-                    max_depth=self.max_depth_xgb,
-                    learning_rate=self.learning_rate,
-                    scale_pos_weight=self.scale_pos_weight,
-                    random_state=self.random_state,
-                    n_jobs=self.n_jobs,
-                    verbosity=0
-                ))
+            xgb_params = dict(
+                n_estimators=self.n_estimators,
+                max_depth=self.max_depth_xgb,
+                learning_rate=self.learning_rate,
+                scale_pos_weight=self.scale_pos_weight,
+                random_state=self.random_state,
+                n_jobs=self.n_jobs,
+                verbosity=0,
             )
+            if self.use_gpu:
+                xgb_params["device"] = "cuda"
+                xgb_params["tree_method"] = "hist"
+            base_learners.append(('xgb', xgb.XGBClassifier(**xgb_params)))
         
         # LightGBM
         if self.has_lgb:
             import lightgbm as lgb
             
-            base_learners.append(
-                ('lgb', lgb.LGBMClassifier(
-                    n_estimators=self.n_estimators,
-                    max_depth=self.max_depth_lgb,
-                    learning_rate=self.learning_rate,
-                    class_weight='balanced',
-                    random_state=self.random_state,
-                    n_jobs=self.n_jobs,
-                    verbosity=-1
-                ))
+            lgb_params = dict(
+                n_estimators=self.n_estimators,
+                max_depth=self.max_depth_lgb,
+                learning_rate=self.learning_rate,
+                class_weight='balanced',
+                random_state=self.random_state,
+                n_jobs=self.n_jobs,
+                verbosity=-1,
             )
+            if self.use_gpu:
+                lgb_params["device"] = "gpu"
+            base_learners.append(('lgb', lgb.LGBMClassifier(**lgb_params)))
         
         return base_learners
     

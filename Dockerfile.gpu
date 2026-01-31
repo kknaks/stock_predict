@@ -1,0 +1,53 @@
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+# Python 3.11 설치
+RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-venv \
+    python3.11-dev \
+    python3-pip \
+    gcc \
+    g++ \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3.11 /usr/bin/python && \
+    python3 -m ensurepip --upgrade && \
+    ln -sf /usr/local/lib/python3.11/dist-packages/pip /usr/local/bin/pip
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+# Poetry 설치
+RUN pip install --no-cache-dir poetry==1.8.3
+
+# Poetry 설정 (가상환경 비활성화, keyring 비활성화)
+ENV PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
+RUN poetry config virtualenvs.create false
+
+# 의존성 파일 복사
+COPY pyproject.toml poetry.lock* ./
+
+# Lock 파일이 없거나 호환되지 않으면 재생성
+RUN poetry lock --no-update || poetry lock
+
+# 의존성만 설치 (패키지 자체는 설치하지 않음, --no-root 옵션)
+RUN poetry install --only main --no-root --no-interaction --no-ansi
+
+# 애플리케이션 코드 복사
+COPY app/ ./app/
+COPY src/ ./src/
+COPY config/ ./config/
+COPY retraining/ ./retraining/
+# models는 볼륨 마운트로 사용 (docker-compose.yml에서)
+
+# 환경 변수 설정
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# 메인 엔트리 포인트
+CMD ["python", "-m", "app.main"]

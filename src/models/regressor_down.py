@@ -49,31 +49,34 @@ class StackingRegressorDown(BaseStackingModel):
         if self.has_xgb:
             import xgboost as xgb
             
-            base_learners.append(
-                ('xgb', xgb.XGBRegressor(
-                    n_estimators=self.n_estimators,
-                    max_depth=self.max_depth_xgb,
-                    learning_rate=self.learning_rate,
-                    random_state=self.random_state,
-                    n_jobs=self.n_jobs,
-                    verbosity=0
-                ))
+            xgb_params = dict(
+                n_estimators=self.n_estimators,
+                max_depth=self.max_depth_xgb,
+                learning_rate=self.learning_rate,
+                random_state=self.random_state,
+                n_jobs=self.n_jobs,
+                verbosity=0,
             )
-        
+            if self.use_gpu:
+                xgb_params["device"] = "cuda"
+                xgb_params["tree_method"] = "hist"
+            base_learners.append(('xgb', xgb.XGBRegressor(**xgb_params)))
+
         # LightGBM
         if self.has_lgb:
             import lightgbm as lgb
-            
-            base_learners.append(
-                ('lgb', lgb.LGBMRegressor(
-                    n_estimators=self.n_estimators,
-                    max_depth=self.max_depth_lgb,
-                    learning_rate=self.learning_rate,
-                    random_state=self.random_state,
-                    n_jobs=self.n_jobs,
-                    verbosity=-1
-                ))
+
+            lgb_params = dict(
+                n_estimators=self.n_estimators,
+                max_depth=self.max_depth_lgb,
+                learning_rate=self.learning_rate,
+                random_state=self.random_state,
+                n_jobs=self.n_jobs,
+                verbosity=-1,
             )
+            if self.use_gpu:
+                lgb_params["device"] = "gpu"
+            base_learners.append(('lgb', lgb.LGBMRegressor(**lgb_params)))
         
         return base_learners
     

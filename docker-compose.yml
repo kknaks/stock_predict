@@ -37,19 +37,28 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # 재학습 서버 (Kafka Consumer)
+  # 재학습 서버 (Kafka Consumer) - GPU 지원
   retraining-server:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.gpu
     container_name: stock-predict-retraining
     restart: unless-stopped
     command: ["python", "-m", "retraining.main"]
     env_file:
       - .env
+    environment:
+      - USE_GPU=true
     volumes:
       - ./models:/app/models
       - ./data/processed:/app/data/processed:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
     networks:
       - stock-predict-network
