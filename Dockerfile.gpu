@@ -50,6 +50,10 @@ RUN poetry lock --no-update || poetry lock
 # 의존성만 설치 (패키지 자체는 설치하지 않음, --no-root 옵션)
 RUN poetry install --only main --no-root --no-interaction --no-ansi
 
+# NVIDIA OpenCL ICD 등록 (컨테이너 내에서 GPU OpenCL 디바이스 인식용)
+RUN mkdir -p /etc/OpenCL/vendors && \
+    echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
+
 # LightGBM CUDA 버전: 소스 빌드 후 .so만 교체
 RUN cd /tmp && \
     git clone --recursive https://github.com/microsoft/LightGBM.git && \
