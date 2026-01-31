@@ -54,7 +54,7 @@ RUN cd /tmp && \
     mkdir build && cd build && \
     cmake -DUSE_CUDA=1 .. && \
     make -j$(nproc) && \
-    cp /tmp/LightGBM/lib_lightgbm.so $(python -c "import lightgbm; print(lightgbm.__path__[0])")/lib_lightgbm.so && \
+    cp /tmp/LightGBM/lib_lightgbm.so $(python -c "import lightgbm; print(lightgbm.__path__[0])")/lib/lib_lightgbm.so && \
     python -c "import lightgbm; print('LightGBM version:', lightgbm.__version__)" && \
     rm -rf /tmp/LightGBM
 
