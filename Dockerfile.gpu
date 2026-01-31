@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y \
     g++ \
     git \
     postgresql-client \
+    ocl-icd-opencl-dev \
+    opencl-headers \
+    nvidia-opencl-icd \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
@@ -52,7 +55,10 @@ RUN cd /tmp && \
     git checkout v4.6.0 && \
     git submodule update --init --recursive && \
     mkdir build && cd build && \
-    cmake -DUSE_CUDA=1 .. && \
+    cmake -DUSE_GPU=1 \
+          -DOpenCL_LIBRARY=/usr/lib/x86_64-linux-gnu/libOpenCL.so \
+          -DOpenCL_INCLUDE_DIR=/usr/include \
+          .. && \
     make -j$(nproc) && \
     cp /tmp/LightGBM/lib_lightgbm.so $(python -c "import lightgbm; print(lightgbm.__path__[0])")/lib/lib_lightgbm.so && \
     python -c "import lightgbm; print('LightGBM version:', lightgbm.__version__)" && \

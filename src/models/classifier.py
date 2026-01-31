@@ -94,9 +94,7 @@ class StackingClassifierModel(BaseStackingModel):
                 verbosity=-1,
             )
             if self.use_gpu:
-                lgb_params["device"] = "cuda"
-                lgb_params["max_bin"] = 63
-                lgb_params["force_row_wise"] = True
+                lgb_params["device"] = "gpu"
             base_learners.append(('lgb', lgb.LGBMClassifier(**lgb_params)))
         
         return base_learners
