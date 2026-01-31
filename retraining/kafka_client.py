@@ -26,7 +26,7 @@ class RetrainConsumer:
             "bootstrap_servers": settings.kafka_servers_list,
             "group_id": settings.kafka_group_id,
             "auto_offset_reset": settings.kafka_auto_offset_reset,
-            "enable_auto_commit": True,
+            "enable_auto_commit": False,
             "value_deserializer": lambda m: m.decode("utf-8"),
         }
 
@@ -38,7 +38,11 @@ class RetrainConsumer:
             raise
 
     def consume_stream(self, handler: Callable[[ModelRetrainCommandMessage], None]):
-        """스트리밍 모드로 재학습 커맨드 수신"""
+        """스트리밍 모드로 재학습 커맨드 수신
+
+        메시지 수신 즉시 커밋 후, 컨슈머를 닫고 학습 실행.
+        학습 중 Kafka 연결을 유지하지 않으므로 heartbeat/리밸런싱 문제 없음.
+        """
         logger.info(f"Starting retrain consumer for {self.topic}...")
 
         try:
@@ -49,13 +53,36 @@ class RetrainConsumer:
                         f"Received retrain command: trigger={command.trigger_type} "
                         f"timestamp={command.timestamp}"
                     )
+                    # 메시지 수신 즉시 커밋 → 학습 중 중복 소비 방지
+                    self.consumer.commit()
+                    self.consumer.close()
+                    self.consumer = None
+                    logger.info("Consumer closed before training start")
+
                     handler(command)
+
+                    # 학습 완료 후 다음 메시지 대기를 위해 재연결
+                    self._reconnect()
                 except Exception as e:
                     logger.error(f"Error processing retrain command: {e}", exc_info=True)
+                    if self.consumer is None:
+                        self._reconnect()
         except KeyboardInterrupt:
             logger.info("Retrain consumer interrupted by user")
         finally:
             self.close()
+
+    def _reconnect(self):
+        """컨슈머 재연결"""
+        config = {
+            "bootstrap_servers": settings.kafka_servers_list,
+            "group_id": settings.kafka_group_id,
+            "auto_offset_reset": settings.kafka_auto_offset_reset,
+            "enable_auto_commit": False,
+            "value_deserializer": lambda m: m.decode("utf-8"),
+        }
+        self.consumer = KafkaConsumer(self.topic, **config)
+        logger.info(f"Consumer reconnected: {self.topic}")
 
     def close(self):
         if self.consumer:
