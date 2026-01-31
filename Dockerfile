@@ -30,7 +30,6 @@ RUN poetry install --only main --no-root --no-interaction --no-ansi
 COPY app/ ./app/
 COPY src/ ./src/
 COPY config/ ./config/
-COPY retraining/ ./retraining/
 # models는 볼륨 마운트로 사용 (docker-compose.yml에서)
 
 # 환경 변수 설정
