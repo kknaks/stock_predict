@@ -95,6 +95,7 @@ class StackingClassifierModel(BaseStackingModel):
             )
             if self.use_gpu:
                 lgb_params["device"] = "cuda"
+                lgb_params["min_child_samples"] = 200
             base_learners.append(('lgb', lgb.LGBMClassifier(**lgb_params)))
         
         return base_learners
