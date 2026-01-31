@@ -55,7 +55,7 @@ class StackingRegressorDown(BaseStackingModel):
                 learning_rate=self.learning_rate,
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
-                verbosity=0,
+                verbosity=1 if self.use_gpu else 0,
             )
             if self.use_gpu:
                 xgb_params["device"] = "cuda"
@@ -72,7 +72,7 @@ class StackingRegressorDown(BaseStackingModel):
                 learning_rate=self.learning_rate,
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
-                verbosity=-1,
+                verbosity=1 if self.use_gpu else -1,
             )
             if self.use_gpu:
                 lgb_params["device"] = "gpu"

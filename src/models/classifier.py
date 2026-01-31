@@ -73,17 +73,17 @@ class StackingClassifierModel(BaseStackingModel):
                 scale_pos_weight=self.scale_pos_weight,
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
-                verbosity=0,
+                verbosity=1 if self.use_gpu else 0,
             )
             if self.use_gpu:
                 xgb_params["device"] = "cuda"
                 xgb_params["tree_method"] = "hist"
             base_learners.append(('xgb', xgb.XGBClassifier(**xgb_params)))
-        
+
         # LightGBM
         if self.has_lgb:
             import lightgbm as lgb
-            
+
             lgb_params = dict(
                 n_estimators=self.n_estimators,
                 max_depth=self.max_depth_lgb,
@@ -91,7 +91,7 @@ class StackingClassifierModel(BaseStackingModel):
                 class_weight='balanced',
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
-                verbosity=-1,
+                verbosity=1 if self.use_gpu else -1,
             )
             if self.use_gpu:
                 lgb_params["device"] = "gpu"
