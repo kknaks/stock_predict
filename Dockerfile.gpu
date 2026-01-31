@@ -18,13 +18,13 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# CMake 3.28+ 설치 (LightGBM v4.6.0 요구)
-RUN pip install cmake>=3.28
-
 RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
     ln -sf /usr/bin/python3.11 /usr/bin/python && \
     python3 -m ensurepip --upgrade && \
     ln -sf /usr/local/lib/python3.11/dist-packages/pip /usr/local/bin/pip
+
+# CMake 3.28+ 설치 (LightGBM v4.6.0 요구)
+RUN pip install "cmake>=3.28"
 
 # 작업 디렉토리 설정
 WORKDIR /app
