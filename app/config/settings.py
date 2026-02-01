@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     # 토픽 이름
     topic_gap_candidate: str = "extract_daily_candidate"
     topic_prediction_result: str = "ai_prediction_result"
+    topic_retrain_result: str = "model_retrain_result"
 
     # -------------------------------------------
     # Model Storage

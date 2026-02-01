@@ -47,6 +47,15 @@ def get_predictor():
     return _predictor
 
 
+def reload_predictor():
+    """모델 리로드 (retrain 완료 시 호출)"""
+    global _predictor
+    logger.info("모델 리로드 시작...")
+    _predictor = None
+    get_predictor()
+    logger.info("✓ 모델 리로드 완료")
+
+
 def handle_gap_candidate_message(message: GapCandidateMessage) -> Optional[PredictionResultMessage]:
     """
     갭 상승 후보 메시지 처리

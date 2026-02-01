@@ -4,15 +4,21 @@ AI 서버 메인 엔트리 포인트
 Kafka Consumer를 실행하여 갭 상승 후보 메시지를 수신하고 예측 수행
 """
 
+import json
 import logging
 import signal
 import sys
+import threading
 from typing import Optional
+
+from kafka import KafkaConsumer
+from kafka.errors import KafkaError
 
 from app.kafka.consumer import GapCandidateConsumer
 from app.kafka.producer import PredictionProducer
-from app.handler.gap_predict_handler import handle_gap_candidate_message
+from app.handler.gap_predict_handler import handle_gap_candidate_message, reload_predictor
 from app.config.settings import settings
+from app.config.kafka_connections import get_kafka_config
 from app.prediction.predictor import HybridPredictor
 from app.kafka.schemas import GapCandidateBatchMessage, PredictionResultBatchMessage
 from datetime import datetime
@@ -43,6 +49,46 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
+def start_retrain_result_consumer():
+    """model_retrain_result 토픽 consume (별도 스레드)"""
+    kafka_config = get_kafka_config()
+    consumer_config = kafka_config.get_consumer_config()
+    consumer_config['group_id'] = f"{settings.kafka_group_id}-retrain"
+
+    try:
+        retrain_consumer = KafkaConsumer(
+            settings.topic_retrain_result,
+            **consumer_config
+        )
+        logger.info(f"✓ Retrain result consumer 시작: {settings.topic_retrain_result}")
+
+        for message in retrain_consumer:
+            try:
+                data = json.loads(message.value)
+                status = data.get("status")
+                is_deployed = data.get("is_deployed", False)
+                version = data.get("new_version", "unknown")
+
+                logger.info(
+                    f"Retrain 결과 수신: version={version}, "
+                    f"status={status}, is_deployed={is_deployed}"
+                )
+
+                if status == "success" and is_deployed:
+                    logger.info(f"새 모델 배포 감지 (version={version}), 모델 리로드...")
+                    reload_predictor()
+                else:
+                    logger.info(f"모델 리로드 건너뜀 (status={status}, is_deployed={is_deployed})")
+
+            except Exception as e:
+                logger.error(f"Retrain 결과 메시지 처리 오류: {e}", exc_info=True)
+
+    except KafkaError as e:
+        logger.error(f"Retrain result consumer 초기화 실패: {e}")
+    except Exception as e:
+        logger.error(f"Retrain result consumer 오류: {e}", exc_info=True)
+
+
 def main():
     """메인 함수"""
     global consumer, producer
@@ -60,6 +106,14 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
+    # Retrain result consumer 스레드 시작
+    retrain_thread = threading.Thread(
+        target=start_retrain_result_consumer,
+        daemon=True,
+        name="retrain-result-consumer"
+    )
+    retrain_thread.start()
+
     try:
         # Consumer 생성
         consumer = GapCandidateConsumer()
