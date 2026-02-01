@@ -8,7 +8,7 @@ Kafka 메시지 스키마 - 모델 재학습용
 
 from datetime import datetime
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class RetrainConfig(BaseModel):
@@ -19,17 +19,33 @@ class RetrainConfig(BaseModel):
     data_end_date: Optional[str] = Field(
         None, description="학습 데이터 종료일 (YYYY-MM-DD), None이면 최신"
     )
-    threshold: float = Field(default=0.4, description="분류 임계값")
-    n_estimators: int = Field(default=300, description="앙상블 모델 수")
-    test_size: float = Field(default=0.1, description="테스트 비율")
-    valid_size: float = Field(default=0.2, description="검증 비율")
-    test_recent: bool = Field(default=True, description="True: 최근 데이터로 test, False: 랜덤 분할")
-    min_roc_auc: float = Field(default=0.55, description="ROC AUC 최소 기준")
-    max_roc_auc_drop: float = Field(default=0.02, description="ROC AUC 최대 허용 하락폭")
-    max_f1_drop: float = Field(default=0.05, description="F1 최대 허용 하락폭")
-    min_backtest_return: float = Field(default=0.0, description="백테스트 최소 수익률 (%)")
-    min_sharpe_ratio: float = Field(default=1.0, description="백테스트 최소 Sharpe Ratio")
-    min_profit_factor: float = Field(default=1.0, description="백테스트 최소 Profit Factor")
+    threshold: Optional[float] = Field(default=0.4, description="분류 임계값")
+    n_estimators: Optional[int] = Field(default=300, description="앙상블 모델 수")
+    test_size: Optional[float] = Field(default=0.1, description="테스트 비율")
+    valid_size: Optional[float] = Field(default=0.2, description="검증 비율")
+    test_recent: Optional[bool] = Field(default=True, description="True: 최근 데이터로 test, False: 랜덤 분할")
+    min_roc_auc: Optional[float] = Field(default=0.55, description="ROC AUC 최소 기준")
+    max_roc_auc_drop: Optional[float] = Field(default=0.02, description="ROC AUC 최대 허용 하락폭")
+    max_f1_drop: Optional[float] = Field(default=0.05, description="F1 최대 허용 하락폭")
+    min_backtest_return: Optional[float] = Field(default=0.0, description="백테스트 최소 수익률 (%)")
+    min_sharpe_ratio: Optional[float] = Field(default=1.0, description="백테스트 최소 Sharpe Ratio")
+    min_profit_factor: Optional[float] = Field(default=1.0, description="백테스트 최소 Profit Factor")
+
+    @model_validator(mode="before")
+    @classmethod
+    def replace_none_with_defaults(cls, values):
+        """명시적 null → default 값으로 치환"""
+        defaults = {
+            "threshold": 0.4, "n_estimators": 300, "test_size": 0.1,
+            "valid_size": 0.2, "test_recent": True, "min_roc_auc": 0.55,
+            "max_roc_auc_drop": 0.02, "max_f1_drop": 0.05,
+            "min_backtest_return": 0.0, "min_sharpe_ratio": 1.0,
+            "min_profit_factor": 1.0,
+        }
+        for key, default in defaults.items():
+            if values.get(key) is None:
+                values[key] = default
+        return values
 
 
 class ModelRetrainCommandMessage(BaseModel):
