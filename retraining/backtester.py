@@ -3,6 +3,10 @@
 
 기존 src/backtesting/simulator.py + metric.py 활용
 노트북 07_backtesting.ipynb과 동일한 로직
+
+두 가지 손절 전략을 비교:
+  - model_3: Model 3 예측 손실의 50%에서 손절
+  - fixed_1pct: 고정 -1% 손절
 """
 
 import logging
@@ -21,7 +25,38 @@ from src.models.base import FEATURE_COLS
 logger = logging.getLogger(__name__)
 
 
-def run_backtest(
+# 백테스트 전략 정의
+BACKTEST_STRATEGIES: Dict[str, BacktestConfig] = {
+    "model_3_stop": BacktestConfig(
+        initial_capital=100000.0,
+        max_positions=20,
+        position_sizing="equal",
+        commission_rate=0.001,
+        slippage_rate=0.0005,
+        min_expected_return=1.0,
+        min_prob_up=0.4,
+        take_profit_strategy="model_2_1",
+        take_profit_ratio=0.8,
+        stop_loss_strategy="model_3",
+        stop_loss_ratio=0.5,
+    ),
+    "fixed_1pct_stop": BacktestConfig(
+        initial_capital=100000.0,
+        max_positions=20,
+        position_sizing="equal",
+        commission_rate=0.001,
+        slippage_rate=0.0005,
+        min_expected_return=1.0,
+        min_prob_up=0.4,
+        take_profit_strategy="model_2_1",
+        take_profit_ratio=0.8,
+        stop_loss_strategy="fixed",
+        fixed_stop_loss_pct=-1.0,
+    ),
+}
+
+
+def _prepare_backtest_data(
     model_path: str,
     df_model: pd.DataFrame,
     df_raw: Optional[pd.DataFrame] = None,
@@ -29,22 +64,11 @@ def run_backtest(
     features: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
-    학습된 모델로 백테스트 실행
-
-    Args:
-        model_path: pkl 모델 경로
-        df_model: 전처리된 학습 데이터 (features + targets, OHLC 없을 수 있음)
-        df_raw: 원본 병합 데이터 (OHLC 포함). None이면 df_model에서 OHLC를 찾음
-        threshold: 분류 threshold
-        features: feature 컬럼 목록 (None이면 pkl에서 추출)
+    백테스트용 데이터 + 예측 결과 준비 (공통 로직)
 
     Returns:
-        {
-            "metrics": dict,
-            "trades_df": DataFrame,
-            "equity_df": DataFrame,
-            "config": BacktestConfig,
-        }
+        {"df_test": DataFrame, "predictions": DataFrame, "features": list}
+        또는 None (데이터 부족 등)
     """
     logger.info(f"Loading model for backtest: {model_path}")
     model_data = joblib.load(model_path)
@@ -62,11 +86,9 @@ def run_backtest(
     # df_model에 OHLC가 없으면 df_raw에서 join
     ohlc_cols = ["open", "high", "low", "close"]
     if df_raw is not None and not all(c in df_model.columns for c in ohlc_cols):
-        # df_raw에서 OHLC + date를 df_model의 index 기준으로 join
         raw_cols = [c for c in ohlc_cols + ["date", "symbol", "InfoCode"] if c in df_raw.columns]
         df_raw_subset = df_raw[raw_cols]
 
-        # date + InfoCode/symbol 기준 merge
         merge_key = []
         if "date" in df_model.columns and "date" in df_raw_subset.columns:
             merge_key.append("date")
@@ -75,7 +97,6 @@ def run_backtest(
 
         if merge_key:
             df_merged = df_model.merge(df_raw_subset, on=merge_key, how="left", suffixes=("", "_raw"))
-            # 이미 있는 컬럼은 덮어쓰지 않음
             for col in ohlc_cols:
                 if col not in df_model.columns and col in df_merged.columns:
                     df_model = df_merged
@@ -88,20 +109,18 @@ def run_backtest(
         else:
             logger.warning("Cannot merge OHLC: no common keys (date, InfoCode)")
 
-    # 필요한 컬럼 확인
-    required_data_cols = ["date", "open", "high", "low", "close",
-                          "target_direction", "target_return", "target_max_return"]
     missing = [c for c in ohlc_cols if c not in df_model.columns]
     if missing:
         logger.warning(f"Missing OHLC columns for backtest: {missing}")
         return None
 
+    required_data_cols = ["date", "open", "high", "low", "close",
+                          "target_direction", "target_return", "target_max_return"]
     available_cols = list(dict.fromkeys(
         [c for c in features + required_data_cols if c in df_model.columns]
     ))
     df = df_model[available_cols].dropna(subset=[f for f in features if f in df_model.columns]).copy()
 
-    # NaN 처리
     for col in features:
         if col in df.columns:
             na_count = df[col].isna().sum()
@@ -112,7 +131,6 @@ def run_backtest(
         logger.warning(f"Not enough data for backtest: {len(df)} rows")
         return None
 
-    # Train/Test 분할
     X = df[features]
     y = df["target_direction"]
 
@@ -125,7 +143,6 @@ def run_backtest(
 
     logger.info(f"Backtest test set: {len(df_test)} samples")
 
-    # 모델 예측
     prob_up = stacking_clf.predict_proba(X_test)[:, 1]
     prob_down = 1 - prob_up
     return_if_up = stacking_reg_up.predict(X_test)
@@ -146,26 +163,21 @@ def run_backtest(
         "predicted_high": predicted_high,
     }, index=X_test.index)
 
-    # 백테스트 실행 (노트북 07 기본 전략과 동일)
-    config = BacktestConfig(
-        initial_capital=100000.0,
-        max_positions=20,
-        position_sizing="equal",
-        commission_rate=0.001,
-        slippage_rate=0.0005,
-        min_expected_return=1.0,
-        min_prob_up=0.4,
-        take_profit_strategy="model_2_1",
-        take_profit_ratio=0.8,
-        stop_loss_strategy="model_3",
-        stop_loss_ratio=0.5,
-    )
+    return {"df_test": df_test, "predictions": predictions, "features": features}
 
+
+def _run_single_strategy(
+    name: str,
+    config: BacktestConfig,
+    df_test: pd.DataFrame,
+    predictions: pd.DataFrame,
+) -> Optional[Dict[str, Any]]:
+    """단일 전략 백테스트 실행"""
     simulator = GapTradingSimulator(config=config)
     results = simulator.run(data=df_test, predictions=predictions)
 
     if results["trades"].empty:
-        logger.warning("No trades executed in backtest")
+        logger.warning(f"[{name}] No trades executed")
         return None
 
     metrics = calculate_all_metrics(
@@ -175,7 +187,7 @@ def run_backtest(
     )
 
     logger.info(
-        f"Backtest complete: {metrics.get('n_trades', 0)} trades, "
+        f"[{name}] Backtest complete: {metrics.get('n_trades', 0)} trades, "
         f"return={metrics.get('total_return_pct', 0):+.2f}%, "
         f"sharpe={metrics.get('sharpe_ratio', 0):.3f}"
     )
@@ -185,4 +197,63 @@ def run_backtest(
         "trades_df": results["trades"],
         "equity_df": results["equity"],
         "config": config,
+    }
+
+
+def run_backtest(
+    model_path: str,
+    df_model: pd.DataFrame,
+    df_raw: Optional[pd.DataFrame] = None,
+    threshold: float = 0.4,
+    features: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    학습된 모델로 백테스트 실행 (두 가지 손절 전략 비교)
+
+    Returns:
+        {
+            "strategies": {
+                "model_3_stop": {"metrics", "trades_df", "equity_df", "config"},
+                "fixed_1pct_stop": {"metrics", "trades_df", "equity_df", "config"},
+            },
+            # 하위 호환: 기본 전략(model_3_stop) 결과를 최상위에도 유지
+            "metrics": dict,
+            "trades_df": DataFrame,
+            "equity_df": DataFrame,
+            "config": BacktestConfig,
+        }
+    """
+    prepared = _prepare_backtest_data(
+        model_path=model_path,
+        df_model=df_model,
+        df_raw=df_raw,
+        threshold=threshold,
+        features=features,
+    )
+    if prepared is None:
+        return None
+
+    df_test = prepared["df_test"]
+    predictions = prepared["predictions"]
+
+    strategies_results = {}
+    for name, config in BACKTEST_STRATEGIES.items():
+        result = _run_single_strategy(name, config, df_test, predictions)
+        if result is not None:
+            strategies_results[name] = result
+
+    if not strategies_results:
+        logger.warning("No strategy produced trades")
+        return None
+
+    # 하위 호환: model_3_stop을 기본으로, 없으면 첫 번째 전략
+    default_key = "model_3_stop" if "model_3_stop" in strategies_results else next(iter(strategies_results))
+    default = strategies_results[default_key]
+
+    return {
+        "strategies": strategies_results,
+        "metrics": default["metrics"],
+        "trades_df": default["trades_df"],
+        "equity_df": default["equity_df"],
+        "config": default["config"],
     }

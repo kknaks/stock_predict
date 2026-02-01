@@ -121,6 +121,10 @@ def handle_retrain_command(
             df_model.to_parquet(training_data_path, index=False)
             logger.info(f"Training data saved: {training_data_path}")
 
+            raw_data_path = version_dir / "training_raw_data.parquet"
+            merged_raw_df.to_parquet(raw_data_path, index=False)
+            logger.info(f"Raw training data saved: {raw_data_path}")
+
             hyperparams = {
                 "threshold": config.threshold,
                 "n_estimators": config.n_estimators,

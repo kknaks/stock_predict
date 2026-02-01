@@ -35,12 +35,12 @@ def main():
             n_estimators=300,
             test_size=0.1,
             valid_size=0.2,
-            test_recent=True,
+            test_recent=False,
         ),
     )
 
     # 실행 (DB registry 사용 → champion 비교 활성화)
-    result = handle_retrain_command(command, skip_registry=False)
+    result = handle_retrain_command(command, skip_registry=True)
 
     # 결과 출력
     logger.info("=" * 60)

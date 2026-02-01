@@ -398,8 +398,33 @@ def generate_report(
             except Exception as e:
                 logger.warning(f"{model_key} chart failed: {e}")
 
-    # 백테스트 차트
-    if backtest_result and backtest_result.get("equity_df") is not None:
+    # 백테스트 차트 (전략별)
+    strategies = backtest_result.get("strategies", {}) if backtest_result else {}
+    if strategies:
+        for sname, sresult in strategies.items():
+            if sresult.get("equity_df") is not None:
+                equity_chart = report_dir / f"equity_curve_{sname}.png"
+                try:
+                    _generate_equity_curve_chart(
+                        sresult["equity_df"],
+                        sresult["config"].initial_capital,
+                        equity_chart,
+                    )
+                    chart_files.append((equity_chart.name, f"Equity Curve ({sname})"))
+                except Exception as e:
+                    logger.warning(f"Equity curve chart failed ({sname}): {e}")
+
+                trade_chart = report_dir / f"trade_analysis_{sname}.png"
+                try:
+                    _generate_trade_analysis_chart(
+                        sresult["trades_df"],
+                        trade_chart,
+                    )
+                    chart_files.append((trade_chart.name, f"Trade Analysis ({sname})"))
+                except Exception as e:
+                    logger.warning(f"Trade analysis chart failed ({sname}): {e}")
+    elif backtest_result and backtest_result.get("equity_df") is not None:
+        # 하위 호환
         equity_chart = report_dir / "equity_curve.png"
         try:
             _generate_equity_curve_chart(
@@ -558,7 +583,80 @@ def generate_report(
     lines.append("## 5. Backtest Results")
     lines.append("")
 
-    if backtest_result and backtest_result.get("metrics"):
+    strategies = backtest_result.get("strategies", {}) if backtest_result else {}
+
+    if strategies:
+        # 전략 비교표
+        strategy_labels = {
+            "model_3_stop": "Model3 손절 (50%)",
+            "fixed_1pct_stop": "고정 -1% 손절",
+        }
+        compare_keys = [
+            ("total_return_pct", "Total Return", "+.2f", "%"),
+            ("cagr_pct", "CAGR", "+.2f", "%"),
+            ("sharpe_ratio", "Sharpe Ratio", ".3f", ""),
+            ("sortino_ratio", "Sortino Ratio", ".3f", ""),
+            ("max_drawdown_pct", "Max Drawdown", ".2f", "%"),
+            ("win_rate_pct", "Win Rate", ".2f", "%"),
+            ("profit_factor", "Profit Factor", ".3f", ""),
+            ("n_trades", "Trades", "d", ""),
+            ("expectancy", "Expectancy", ",.2f", "$"),
+        ]
+
+        header_cols = " | ".join(strategy_labels.get(k, k) for k in strategies)
+        lines.append(f"### Strategy Comparison")
+        lines.append("")
+        lines.append(f"| Metric | {header_cols} |")
+        lines.append(f"|--------|{'|'.join(['-------'] * len(strategies))}|")
+
+        for key, label, fmt, unit in compare_keys:
+            vals = []
+            for sname in strategies:
+                v = strategies[sname]["metrics"].get(key, 0)
+                if unit == "$":
+                    vals.append(f"${v:{fmt}}")
+                elif fmt == "d":
+                    vals.append(f"{int(v)}")
+                else:
+                    vals.append(f"{v:{fmt}}{unit}")
+            lines.append(f"| {label} | {' | '.join(vals)} |")
+        lines.append("")
+
+        # 각 전략 상세
+        for sname, sresult in strategies.items():
+            slabel = strategy_labels.get(sname, sname)
+            bt = sresult["metrics"]
+
+            lines.append(f"### {slabel}")
+            lines.append("")
+
+            chart_prefix = sname
+            equity_png = f"equity_curve_{chart_prefix}.png"
+            trade_png = f"trade_analysis_{chart_prefix}.png"
+
+            if (report_dir / equity_png).exists():
+                lines.append(f"![Equity Curve - {slabel}](./{equity_png})")
+                lines.append("")
+
+            if (report_dir / trade_png).exists():
+                lines.append(f"![Trade Analysis - {slabel}](./{trade_png})")
+                lines.append("")
+
+            # 청산 이유별 통계
+            exit_reasons = bt.get("exit_reasons", {})
+            avg_by_exit = bt.get("avg_return_by_exit", {})
+            if exit_reasons:
+                lines.append("| Reason | Count | Avg Return |")
+                lines.append("|--------|-------|------------|")
+                total_trades = bt.get("n_trades", 1)
+                for reason, count in exit_reasons.items():
+                    pct = count / total_trades * 100
+                    avg_ret = avg_by_exit.get(reason, 0)
+                    lines.append(f"| {reason} | {count} ({pct:.1f}%) | {avg_ret:+.2f}% |")
+                lines.append("")
+
+    elif backtest_result and backtest_result.get("metrics"):
+        # 하위 호환: strategies가 없는 구버전 결과
         bt = backtest_result["metrics"]
 
         if (report_dir / "equity_curve.png").exists():
@@ -578,7 +676,6 @@ def generate_report(
         lines.append(f"| Expectancy | ${bt.get('expectancy', 0):,.2f} |")
         lines.append("")
 
-        # 청산 이유별 통계
         exit_reasons = bt.get("exit_reasons", {})
         avg_by_exit = bt.get("avg_return_by_exit", {})
         if exit_reasons:
