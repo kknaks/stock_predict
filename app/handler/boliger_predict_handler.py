@@ -193,7 +193,7 @@ def handle_boliger_trigger(message: BoligerTriggerMessage) -> Optional[Predictio
                     date=message.date,
                     gap_rate=gap_ratio * 100,
                     stock_open=float(stock.get("stock_open", 0)),
-                    avg_volume_20d=stock.get("avg_volume_20d"),
+                    avg_volume_20d=int(stock["avg_volume_20d"]) if stock.get("avg_volume_20d") else None,
                     prob_up=prob_up,
                     prob_down=prob_down,
                     predicted_direction=1 if prob_up >= 0.5 else 0,
