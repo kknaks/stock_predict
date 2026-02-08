@@ -17,10 +17,15 @@ from kafka.errors import KafkaError
 from app.kafka.consumer import GapCandidateConsumer
 from app.kafka.producer import PredictionProducer
 from app.handler.gap_predict_handler import handle_gap_candidate_message, reload_predictor
+from app.handler.boliger_predict_handler import handle_boliger_trigger
 from app.config.settings import settings
 from app.config.kafka_connections import get_kafka_config
 from app.prediction.predictor import HybridPredictor
-from app.kafka.schemas import GapCandidateBatchMessage, PredictionResultBatchMessage
+from app.kafka.schemas import (
+    GapCandidateBatchMessage,
+    PredictionResultBatchMessage,
+    BoligerTriggerMessage,
+)
 from datetime import datetime
 
 # 모델 파일에서 참조하는 클래스 (노트북에서 저장 시 사용된 이름)
@@ -89,16 +94,70 @@ def start_retrain_result_consumer():
         logger.error(f"Retrain result consumer 오류: {e}", exc_info=True)
 
 
+def start_boliger_consumer():
+    """boliger_prediction_trigger 토픽 consume (별도 스레드)"""
+    kafka_config = get_kafka_config()
+    consumer_config = kafka_config.get_consumer_config()
+    consumer_config['group_id'] = f"{settings.kafka_group_id}-boliger"
+
+    boliger_producer = None
+
+    try:
+        boliger_consumer = KafkaConsumer(
+            settings.topic_boliger_trigger,
+            **consumer_config
+        )
+        logger.info(f"Boliger consumer started: {settings.topic_boliger_trigger}")
+
+        boliger_producer = PredictionProducer()
+
+        for message in boliger_consumer:
+            try:
+                trigger = BoligerTriggerMessage.from_json(message.value)
+                logger.info(
+                    f"Boliger trigger: {trigger.exchange_type}, "
+                    f"{trigger.stock_count} stocks"
+                )
+
+                batch_result = handle_boliger_trigger(trigger)
+
+                if batch_result and batch_result.predictions:
+                    success = boliger_producer.send_batch_message(batch_result)
+                    if success:
+                        logger.info(
+                            f"Boliger predictions published: "
+                            f"{batch_result.total_count} stocks "
+                            f"({trigger.exchange_type})"
+                        )
+                    else:
+                        logger.error("Boliger prediction publish failed")
+                else:
+                    logger.warning("Boliger prediction returned no results")
+
+            except Exception as e:
+                logger.error(f"Boliger message processing error: {e}", exc_info=True)
+
+    except KafkaError as e:
+        logger.error(f"Boliger consumer init failed: {e}")
+    except Exception as e:
+        logger.error(f"Boliger consumer error: {e}", exc_info=True)
+    finally:
+        if boliger_producer:
+            boliger_producer.close()
+
+
 def main():
     """메인 함수"""
     global consumer, producer
-    
+
     logger.info("=" * 80)
     logger.info("Stock Predict AI Server 시작")
     logger.info("=" * 80)
     logger.info(f"  - Kafka Topic: {settings.topic_gap_candidate}")
+    logger.info(f"  - Boliger Topic: {settings.topic_boliger_trigger}")
     logger.info(f"  - Group ID: {settings.kafka_group_id}")
     logger.info(f"  - Model Path: {settings.model_path}")
+    logger.info(f"  - Boliger Model: {settings.boliger_model_dir}")
     logger.info(f"  - DB Host: {settings.db_host}")
     logger.info("=" * 80)
     
@@ -113,6 +172,14 @@ def main():
         name="retrain-result-consumer"
     )
     retrain_thread.start()
+
+    # Boliger prediction trigger consumer 스레드 시작
+    boliger_thread = threading.Thread(
+        target=start_boliger_consumer,
+        daemon=True,
+        name="boliger-consumer"
+    )
+    boliger_thread.start()
 
     try:
         # Consumer 생성

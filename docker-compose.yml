@@ -17,6 +17,8 @@ services:
       - ./app/logs:/app/logs
       # Feature 디버깅 디렉토리 (테스트용)
       - ./data/features:/app/data/features
+      # Boliger 모델 pickle 공유 (read-only)
+      - ../shared/boliger:/shared/boliger:ro
 
     networks:
       - stock-predict-network

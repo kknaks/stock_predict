@@ -237,6 +237,38 @@ class PredictionResultBatchMessage(BaseModel):
         return cls.model_validate_json(json_str)
 
 
+class BoligerTriggerMessage(BaseModel):
+    """
+    Boliger 예측 트리거 메시지 (수신용)
+
+    토픽: boliger_prediction_trigger
+    발행자: Airflow (boliger_nxt_predict / boliger_krx_predict DAG)
+
+    경량 메시지 — 실제 데이터는 pickle 파일에 저장됨
+    """
+    exchange_type: str = Field(..., description="거래소 유형 (NXT/KRX)")
+    pickle_path: str = Field(..., description="완성된 pickle 파일 경로")
+    stock_count: int = Field(..., ge=0, description="예측 대상 종목 수")
+    date: str = Field(..., description="예측 대상 날짜 (YYYY-MM-DD)")
+
+    @classmethod
+    def from_json(cls, json_str: Union[str, bytes]) -> 'BoligerTriggerMessage':
+        """JSON 문자열에서 생성 (Kafka 수신용)"""
+        if isinstance(json_str, bytes):
+            json_str = json_str.decode('utf-8')
+        if not isinstance(json_str, str):
+            json_str = str(json_str)
+
+        try:
+            return cls.model_validate_json(json_str)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            try:
+                data = ast.literal_eval(json_str)
+                return cls.model_validate(data)
+            except (ValueError, SyntaxError) as e:
+                raise ValueError(f"Invalid BoligerTriggerMessage format: {e}")
+
+
 class MarketIndexData(BaseModel):
     """
     시장 지수 데이터 (내부 사용)

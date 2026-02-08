@@ -1,0 +1,19 @@
+name: xgboost
+
+# XGBoost 하이퍼파라미터 (v3.3: Regularization 강화)
+n_estimators: 500
+max_depth: 4              # 6 → 4 (트리 깊이 제한)
+learning_rate: 0.01       # 0.05 → 0.01 (학습률 낮춤)
+subsample: 0.6            # 0.8 → 0.6 (샘플링 줄임)
+colsample_bytree: 0.6     # 0.8 → 0.6 (피처 샘플링 줄임)
+min_child_weight: 10      # 3 → 10 (리프 최소 샘플 ↑)
+reg_alpha: 1.0            # 0.1 → 1.0 (L1 정규화 10배 ↑)
+reg_lambda: 5.0           # 1.0 → 5.0 (L2 정규화 5배 ↑)
+
+# Early stopping
+early_stopping_rounds: 50
+
+# 공통 설정
+n_jobs: -1
+random_state: 42
+verbosity: 0

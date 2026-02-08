@@ -1,0 +1,16 @@
+strategy_mode: no_stop_loss
+
+initial_capital: 100000000
+max_positions: 10
+max_position_ratio: 0.1
+
+commission_pct: 0.00015
+slippage_pct: 0.001
+tax_rate: 0.0023
+
+prob_threshold: 0.8
+min_expected_return: 0.005
+max_gap_ratio: 0.28
+
+take_profit_ratio: 0.8  # 목표가 = 예측 high * 0.8
+time_stop: "15:20"

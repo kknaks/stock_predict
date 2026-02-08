@@ -1,0 +1,57 @@
+# Ensemble configuration for separated training (v3)
+#
+# 5 Base Models: lstm, cnn, mlp, xgboost, rf
+# 3 Tasks: cls (classification), high (high_return), low (low_return)
+#
+# Performance observations (from Phase 5):
+#   - CLS: NN models more stable in production (Tree tends to overfit)
+#   - High: XGBoost Test Corr 0.78 >> NN 0.17
+#   - Low: CNN Test Corr 0.65, XGBoost also good
+
+# Ensemble mode
+# Options: simple_avg, weighted_avg, learned_avg, stacking_ridge, stacking_xgb
+mode: weighted_avg
+
+# Model weights per task (for weighted_avg mode)
+# Weights should sum to 1.0 for each task
+weights:
+  cls:
+    lstm: 0.25
+    cnn: 0.25
+    mlp: 0.25
+    xgboost: 0.15   # Lower weight due to overfitting tendency
+    rf: 0.10
+  high:
+    lstm: 0.05
+    cnn: 0.10
+    mlp: 0.05
+    xgboost: 0.40   # Best performance (Test Corr 0.78)
+    rf: 0.40
+  low:
+    lstm: 0.15
+    cnn: 0.25       # Good performance (Test Corr 0.65)
+    mlp: 0.15
+    xgboost: 0.30
+    rf: 0.15
+
+# Model paths
+model_dirs:
+  nn: models_sep     # Neural network models (LSTM, CNN, MLP)
+  tree: models_sep   # Tree models (XGBoost, RF)
+
+# Stacking meta learner configuration (for stacking_ridge, stacking_xgb modes)
+stacking:
+  ridge:
+    alpha: 1.0
+    fit_intercept: true
+  xgb:
+    n_estimators: 100
+    max_depth: 3
+    learning_rate: 0.1
+    reg_alpha: 0.5
+    reg_lambda: 1.0
+
+# Learned average configuration (for learned_avg mode)
+learned_avg:
+  method: softmax_inv_loss   # softmax_inv_loss, softmax_metric
+  temperature: 1.0           # Softmax temperature (higher = more uniform)

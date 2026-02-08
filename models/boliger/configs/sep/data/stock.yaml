@@ -1,0 +1,4 @@
+processed_dir: data/processed
+train_end: "2023-12-31"
+val_end: "2024-06-30"
+max_seq_len: 20

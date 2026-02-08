@@ -1,0 +1,23 @@
+# 공통
+epochs: 100
+batch_size: 512
+lr: 0.001
+weight_decay: 0.0001
+grad_clip: 5.0
+early_stopping_patience: 10
+
+# 분류 모델
+cls:
+  loss: focal
+  focal_alpha: 0.5
+  focal_gamma: 2.0
+
+# High 회귀 모델
+high:
+  loss: huber
+  huber_delta: 0.02
+
+# Low 회귀 모델
+low:
+  loss: huber
+  huber_delta: 0.02

@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     # -------------------------------------------
     model_path: str = "./models/stacking/active/stacking_hybrid_model.pkl"
 
+    # Boliger 모델 설정
+    boliger_model_dir: str = "./models/boliger/models_sep"
+    boliger_config_dir: str = "./models/boliger/configs/sep"
+    boliger_ensemble_mode: str = "stacking_ridge"
+    topic_boliger_trigger: str = "boliger_prediction_trigger"
+
     # -------------------------------------------
     # Feature 계산 설정
     # -------------------------------------------

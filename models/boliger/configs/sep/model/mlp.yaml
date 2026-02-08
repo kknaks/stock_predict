@@ -1,0 +1,5 @@
+name: mlp
+hidden_dims: [128, 64]
+dropout: 0.3
+aggregation: [mean, std, last, min, max]
+fusion_dim: 32

@@ -33,7 +33,7 @@ COPY config/ ./config/
 # models는 볼륨 마운트로 사용 (docker-compose.yml에서)
 
 # 환경 변수 설정
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app:/app/src
 ENV PYTHONUNBUFFERED=1
 
 # 메인 엔트리 포인트

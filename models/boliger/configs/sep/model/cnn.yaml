@@ -1,0 +1,5 @@
+name: cnn
+kernel_sizes: [3, 5, 7]
+num_filters: 64
+dropout: 0.3
+fusion_dim: 32
