@@ -206,27 +206,23 @@ def handle_boliger_trigger(message: BoligerTriggerMessage) -> Optional[Predictio
                     model_version="boliger-v2.0",
                     confidence=confidence,
                 )
-                prediction_results.append(result_msg)
-
-                # DB 저장
-                # _save_prediction_to_db(session, result_msg, message)
+                # prob_up >= 0.8 이상만 저장 및 발행
+                if result_msg.prob_up >= 0.8:
+                    prediction_results.append(result_msg)
+                    _save_prediction_to_db(session, result_msg, message)
 
             session.commit()
 
-        # prob_up >= 0.8 필터링 (Kafka 발행용)
-        filtered_results = [r for r in prediction_results if r.prob_up >= 0.8]
-
         logger.info(
-            f"Predictions generated: {len(prediction_results)} stocks, "
-            f"filtered (prob_up>=0.8): {len(filtered_results)} stocks"
+            f"Predictions filtered (prob_up>=0.8): {len(prediction_results)} stocks"
         )
 
-        # 5. 배치 결과 메시지 생성 (필터링된 결과만)
+        # 5. 배치 결과 메시지 생성
         batch_result = PredictionResultBatchMessage(
             timestamp=datetime.now(),
-            total_count=len(filtered_results),
+            total_count=len(prediction_results),
             exchange_type=message.exchange_type,
-            predictions=filtered_results,
+            predictions=prediction_results,
         )
 
         return batch_result
