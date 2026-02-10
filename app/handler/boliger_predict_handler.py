@@ -214,7 +214,7 @@ def handle_boliger_trigger(message: BoligerTriggerMessage) -> Optional[Predictio
             session.commit()
 
         logger.info(
-            f"Predictions filtered (prob_up>=0.8): {len(prediction_results)} stocks"
+            f"Predictions filtered (return_if_up>=3%): {len(prediction_results)} stocks"
         )
 
         # 5. 배치 결과 메시지 생성
