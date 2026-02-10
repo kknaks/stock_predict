@@ -147,10 +147,12 @@ def handle_boliger_trigger(message: BoligerTriggerMessage) -> Optional[Predictio
         high_returns = results["high_return"].numpy().squeeze(-1)  # (n_stocks,)
         low_returns = results["low_return"].numpy().squeeze(-1)    # (n_stocks,)
 
-        logger.info(
-            f"Inference complete: prob mean={probs.mean():.3f}, "
-            f"high mean={high_returns.mean():.4f}, low mean={low_returns.mean():.4f}"
-        )
+        expected_returns = probs * high_returns * 100 + (1 - probs) * low_returns * 100
+        logger.info(f"Inference complete ({n_stocks} stocks):")
+        logger.info(f"  상승수익: max={high_returns.max()*100:.2f}% med={np.median(high_returns)*100:.2f}% avg={high_returns.mean()*100:.2f}% min={high_returns.min()*100:.2f}%")
+        logger.info(f"  하락손실: max={low_returns.max()*100:.2f}% med={np.median(low_returns)*100:.2f}% avg={low_returns.mean()*100:.2f}% min={low_returns.min()*100:.2f}%")
+        logger.info(f"  기대수익: max={expected_returns.max():.2f}% med={np.median(expected_returns):.2f}% avg={expected_returns.mean():.2f}% min={expected_returns.min():.2f}%")
+        logger.info(f"  상승확률: max={probs.max():.3f} med={np.median(probs):.3f} avg={probs.mean():.3f} min={probs.min():.3f}")
 
         # 4. PredictionResultMessage 생성
         prediction_results = []
@@ -207,7 +209,7 @@ def handle_boliger_trigger(message: BoligerTriggerMessage) -> Optional[Predictio
                     confidence=confidence,
                 )
                 # 상승 시 예상 수익률 3% 이상만 저장 및 발행
-                if result_msg.return_if_up >= 3:
+                if result_msg.return_if_up >= 2:
                     prediction_results.append(result_msg)
                     _save_prediction_to_db(session, result_msg, message)
 
