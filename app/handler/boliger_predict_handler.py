@@ -206,8 +206,8 @@ def handle_boliger_trigger(message: BoligerTriggerMessage) -> Optional[Predictio
                     model_version="boliger-v2.0",
                     confidence=confidence,
                 )
-                # prob_up >= 0.8 이상만 저장 및 발행
-                if result_msg.prob_up >= 0.8:
+                # 상승 시 예상 수익률 3% 이상만 저장 및 발행
+                if result_msg.return_if_up >= 3:
                     prediction_results.append(result_msg)
                     _save_prediction_to_db(session, result_msg, message)
 
